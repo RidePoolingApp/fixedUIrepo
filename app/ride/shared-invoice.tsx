@@ -24,7 +24,7 @@ export default function SharedInvoice() {
       </View>
 
       <TouchableOpacity
-        onPress={() => router.replace("/home")}
+        onPress={() => router.replace("/ride/shared-history")}
         className="absolute top-14 left-6 bg-white p-3 rounded-full shadow"
       >
         <Ionicons name="home" size={24} color="#333" />
