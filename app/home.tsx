@@ -13,13 +13,9 @@ import { useEffect, useRef } from "react";
 import { Ionicons, FontAwesome5, MaterialIcons } from "@expo/vector-icons";
 import BottomNav from "../app/components/BottomNav";
 import { useRouter } from "expo-router";
-import * as Location from "expo-location";
-import { useState } from "react";
-
 
 export default function Home() {
   const router = useRouter();
-  const [currentAddress, setCurrentAddress] = useState("");
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
