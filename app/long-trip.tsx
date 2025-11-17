@@ -11,6 +11,7 @@ import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
+// import { ThemedScreen, ThemedView, ThemedText } from "../app/components/Themed";
 
 export default function LongTrip() {
   const router = useRouter();
@@ -29,7 +30,9 @@ export default function LongTrip() {
 
   return (
     <View className="flex-1 bg-gray-50">
-
+{/* <ThemedScreen>
+  <ThemedView className="p-4 rounded-2xl">
+    <ThemedText className="text-xl font-bold"> */}
       {/* Premium Header */}
       <View className="absolute top-0 left-0 right-0">
         <Svg height="260" width="100%">
@@ -162,6 +165,8 @@ export default function LongTrip() {
           <Text className="text-white text-lg font-bold">Search Cabs</Text>
         </TouchableOpacity>
       </ScrollView>
-    </View>
-  );
+  {/* </ThemedText>
+  </ThemedView>
+</ThemedScreen>  */}
+    </View>);
 }

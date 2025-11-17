@@ -123,7 +123,7 @@ export default function SignUpScreen() {
           </View>
 
           {/* Confirm Password */}
-          <View className="mb-3">
+          {/* <View className="mb-3">
             <Text className="text-gray-700 font-medium mb-2">
               Confirm Password
             </Text>
@@ -144,7 +144,7 @@ export default function SignUpScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </View> */}
 
           {/* Sign Up Button */}
           <TouchableOpacity

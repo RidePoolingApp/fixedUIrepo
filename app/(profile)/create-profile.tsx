@@ -11,6 +11,7 @@ import {
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 
 export default function CreateProfile() {
   const router = useRouter();
@@ -156,6 +157,9 @@ export default function CreateProfile() {
               Save & Continue
             </Text>
           </TouchableOpacity>
+
+
+
         </Animated.View>
       </View>
     </View>
