@@ -171,7 +171,15 @@ export default function Profile() {
             </TouchableOpacity>
           ))}
         </ThemedView>
-
+        <TouchableOpacity
+  className="bg-yellow-50 p-5 rounded-2xl border border-yellow-300 flex-row items-center mt-4"
+  onPress={() => router.push("/driver/onboarding/welcome")}
+>
+  <Ionicons name="car-sport-outline" size={28} color="#d97706" />
+  <Text className="ml-4 text-yellow-700 text-lg font-bold">
+    Become a Driver
+  </Text>
+</TouchableOpacity>
         
 
 
