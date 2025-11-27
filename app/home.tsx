@@ -198,13 +198,23 @@ export default function Home() {
               )}
             </View>
 
+            {/* SEARCH BUTTON */}
+            <View className="mt-4">
+              <TouchableOpacity
+                onPress={() => router.push("/long-trip/results")}
+                className={`p-4 rounded-2xl ${isDark ? "bg-yellow-500" : "bg-yellow-400"}`}
+              >
+                <Text className="text-center text-white font-bold text-lg">Search Rides</Text>
+              </TouchableOpacity>
+            </View>
+
           </View>
         </Animated.View>
 
         {/* SAVED LOCATIONS */}
         <View className="px-6 mt-6">
           <Text className={`text-xl font-semibold mb-3 ${isDark ? "text-white" : "text-gray-900"}`}>
-            Saved Locations
+            Offers
           </Text>
         {/* (existing saved locations code stays the same) */}
         </View>
