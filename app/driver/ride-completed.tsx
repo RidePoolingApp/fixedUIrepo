@@ -6,6 +6,7 @@ import {
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import FareBreakdown from "../components/FareBreakdown";
 import { useRef, useEffect } from "react";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -110,29 +111,16 @@ export default function DriverRideCompleted() {
         </View>
 
         {/* BILLING SECTION */}
-        <View className="border-t border-gray-200 pt-5">
-          <Text className="text-lg font-bold text-gray-900">Fare Breakdown</Text>
-
-          <View className="flex-row justify-between mt-3">
-            <Text className="text-gray-700">Base Fare</Text>
-            <Text className="text-gray-900 font-semibold">₹45</Text>
-          </View>
-
-          <View className="flex-row justify-between mt-2">
-            <Text className="text-gray-700">Distance Charge</Text>
-            <Text className="text-gray-900 font-semibold">₹120</Text>
-          </View>
-
-          <View className="flex-row justify-between mt-2">
-            <Text className="text-gray-700">Time Charge</Text>
-            <Text className="text-gray-900 font-semibold">₹30</Text>
-          </View>
-
-          <View className="flex-row justify-between mt-3 border-t border-gray-200 pt-3">
-            <Text className="text-gray-900 font-bold">TOTAL</Text>
-            <Text className="text-yellow-600 font-extrabold text-xl">₹195</Text>
-          </View>
-        </View>
+        <FareBreakdown
+          items={[
+            { label: "Base Fare", amount: 45 },
+            { label: "Distance Charge", amount: 120, note: "6.2 km" },
+            { label: "Time Charge", amount: 30, note: "14 min" },
+          ]}
+          total={195}
+          currency="₹"
+          accentColor="#FACC15"
+        />
 
         {/* PAYMENT STATUS */}
         <View className="bg-green-100 border border-green-300 p-4 rounded-2xl mt-6">
