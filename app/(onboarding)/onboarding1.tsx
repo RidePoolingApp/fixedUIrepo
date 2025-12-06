@@ -3,14 +3,21 @@ import { View, Text, TouchableOpacity, StatusBar, Animated } from "react-native"
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
+import { useAuth } from "@clerk/clerk-expo";
 
 export default function Onboarding1() {
   const router = useRouter();
+  const { isSignedIn, isLoaded } = useAuth();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
 
   useEffect(() => {
+    if (isLoaded && isSignedIn) {
+      router.replace("/home");
+      return;
+    }
+
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -23,7 +30,7 @@ export default function Onboarding1() {
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  }, [isLoaded, isSignedIn]);
 
   return (
     <View className="flex-1 bg-white">

@@ -12,16 +12,18 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useContext, useState } from "react";
 import { ThemeContext } from "../context/ThemeContext";
+import { useUser } from "@clerk/clerk-expo";
 
 export default function DriverProfile() {
   const router = useRouter();
   const { theme } = useContext(ThemeContext);
   const isDark = theme === "dark";
+  const { user } = useUser();
 
   const [editMode, setEditMode] = useState(false);
-  const [name, setName] = useState("John Doe");
-  const [phone, setPhone] = useState("+91 9876543210");
-  const [email, setEmail] = useState("john@example.com");
+  const [name, setName] = useState(user?.fullName || "");
+  const [phone, setPhone] = useState(user?.primaryPhoneNumber?.phoneNumber || "");
+  const [email, setEmail] = useState(user?.primaryEmailAddress?.emailAddress || "");
   const [model, setModel] = useState("Toyota Camry");
   const [plate, setPlate] = useState("ABC 123");
   const [color, setColor] = useState("White");
@@ -67,7 +69,7 @@ export default function DriverProfile() {
         >
           <View className="items-center">
             <Image
-              source={{ uri: "https://via.placeholder.com/100" }}
+              source={{ uri: user?.imageUrl || "https://via.placeholder.com/100" }}
               className="w-20 h-20 rounded-full"
             />
             {editMode ? (

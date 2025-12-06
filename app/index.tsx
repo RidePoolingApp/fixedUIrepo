@@ -3,9 +3,11 @@ import { View, Text, ActivityIndicator, StatusBar, Animated } from "react-native
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
+import { useAuth } from "@clerk/clerk-expo";
 
 export default function App() {
   const router = useRouter();
+  const { isSignedIn, isLoaded } = useAuth();
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -44,13 +46,19 @@ export default function App() {
       ])
     ).start();
 
-    // Navigate after splash
+    // Navigate after splash - check auth status
     const timer = setTimeout(() => {
-      router.replace("/(onboarding)/welcome");
+      if (isLoaded) {
+        if (isSignedIn) {
+          router.replace("/home");
+        } else {
+          router.replace("/(onboarding)/welcome");
+        }
+      }
     }, 2000);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [isLoaded, isSignedIn]);
 
   return (
     <View className="flex-1 bg-white justify-center items-center">

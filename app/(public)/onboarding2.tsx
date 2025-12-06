@@ -1,23 +1,16 @@
-// app/onboarding3.tsx
+// app/onboarding2.tsx
 import { View, Text, TouchableOpacity, StatusBar, Animated } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
-import { useAuth } from "@clerk/clerk-expo";
 
-export default function Onboarding3() {
+export default function Onboarding2() {
   const router = useRouter();
-  const { isSignedIn, isLoaded } = useAuth();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
 
   useEffect(() => {
-    if (isLoaded && isSignedIn) {
-      router.replace("/home");
-      return;
-    }
-
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -30,7 +23,7 @@ export default function Onboarding3() {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [isLoaded, isSignedIn]);
+  }, []);
 
   return (
     <View className="flex-1 bg-white">
@@ -63,7 +56,7 @@ export default function Onboarding3() {
           }}
           className="items-center mb-10"
         >
-          <Text className="text-7xl">💳</Text>
+          <Text className="text-7xl">🛡️</Text>
         </Animated.View>
 
         {/* Bottom Card */}
@@ -75,28 +68,28 @@ export default function Onboarding3() {
           className="bg-white rounded-3xl p-6 shadow-xl"
         >
           <Text className="text-yellow-600 text-4xl font-bold">
-            Easy & secure payment
+            Your safety is our priority
           </Text>
 
           <Text className="text-gray-700 mt-3 text-lg leading-7">
-            Pay seamlessly with your preferred method  
-            and enjoy a smooth ride experience.
+            All drivers are verified and trained to provide  
+            a safe and comfortable ride experience.
           </Text>
 
           {/* Pagination Dots */}
           <View className="flex-row items-center mt-6 space-x-2">
             <View className="w-3 h-3 bg-gray-400 rounded-full" />
-            <View className="w-3 h-3 bg-gray-400 rounded-full" />
             <View className="w-4 h-4 bg-yellow-500 rounded-full" />
+            <View className="w-3 h-3 bg-gray-400 rounded-full" />
           </View>
 
-          {/* Continue Button */}
+          {/* Next Button */}
           <TouchableOpacity
-            onPress={() => router.push("/letsyouin")}
+            onPress={() => router.push("/onboarding3")}
             className="bg-yellow-500 py-4 rounded-2xl mt-8 items-center shadow-md active:scale-95"
           >
             <Text className="text-white text-xl font-semibold">
-              Get Started
+              Next
             </Text>
           </TouchableOpacity>
         </Animated.View>

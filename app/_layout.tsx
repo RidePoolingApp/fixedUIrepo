@@ -4,6 +4,16 @@ import { useEffect } from "react";
 import { registerForPushNotifications } from "./utils/notifications";
 import { ThemeProvider } from "./context/ThemeContext";
 import { UserTypeProvider } from "./context/UserTypeContext";
+import { ClerkProvider, ClerkLoaded } from "@clerk/clerk-expo";
+import { tokenCache } from "./utils/tokenCache";
+
+const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!;
+
+if (!publishableKey) {
+  throw new Error(
+    "Missing Publishable Key. Please set EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY in your .env"
+  );
+}
 
 export default function RootLayout() {
 
@@ -12,11 +22,15 @@ export default function RootLayout() {
   }, []);
 
   return (
-     <UserTypeProvider>
-    <ThemeProvider>
-      <Stack screenOptions={{ headerShown: false }} />
-    </ThemeProvider>
-    </UserTypeProvider>
+    <ClerkProvider tokenCache={tokenCache} publishableKey={publishableKey}>
+      <ClerkLoaded>
+        <UserTypeProvider>
+          <ThemeProvider>
+            <Stack screenOptions={{ headerShown: false }} />
+          </ThemeProvider>
+        </UserTypeProvider>
+      </ClerkLoaded>
+    </ClerkProvider>
   );
 }
 

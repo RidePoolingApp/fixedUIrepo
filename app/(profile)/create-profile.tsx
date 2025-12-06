@@ -11,13 +11,19 @@ import {
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Ionicons, MaterialIcons } from "@expo/vector-icons";
+import { useUser } from "@clerk/clerk-expo";
 
 export default function CreateProfile() {
   const router = useRouter();
+  const { user } = useUser();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
+
+  const [fullName, setFullName] = useState(user?.fullName || "");
+  const [email, setEmail] = useState(user?.primaryEmailAddress?.emailAddress || "");
+  const [phone, setPhone] = useState(user?.primaryPhoneNumber?.phoneNumber || "");
+  const [gender, setGender] = useState("Male");
 
   useEffect(() => {
     Animated.parallel([
@@ -33,8 +39,6 @@ export default function CreateProfile() {
       }),
     ]).start();
   }, []);
-
-  const [gender, setGender] = useState("Male");
 
   return (
     <View className="flex-1 bg-white">
@@ -79,11 +83,18 @@ export default function CreateProfile() {
         >
           {/* Profile Picture */}
           <View className="items-center mb-6">
-            <TouchableOpacity className="w-28 h-28 bg-gray-200 rounded-full items-center justify-center shadow">
-              <Text className="text-3xl">📷</Text>
-            </TouchableOpacity>
+            {user?.imageUrl ? (
+              <Image
+                source={{ uri: user.imageUrl }}
+                className="w-28 h-28 rounded-full"
+              />
+            ) : (
+              <TouchableOpacity className="w-28 h-28 bg-gray-200 rounded-full items-center justify-center shadow">
+                <Text className="text-3xl">📷</Text>
+              </TouchableOpacity>
+            )}
             <Text className="text-yellow-600 font-semibold mt-2">
-              Add Photo
+              {user?.imageUrl ? "Change Photo" : "Add Photo"}
             </Text>
           </View>
 
@@ -93,6 +104,8 @@ export default function CreateProfile() {
             <TextInput
               placeholder="John Doe"
               placeholderTextColor="#999"
+              value={fullName}
+              onChangeText={setFullName}
               className="bg-gray-100 p-4 rounded-2xl text-gray-900"
             />
           </View>
@@ -104,6 +117,9 @@ export default function CreateProfile() {
               placeholder="example@domain.com"
               placeholderTextColor="#999"
               keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+              editable={!user?.primaryEmailAddress?.emailAddress}
               className="bg-gray-100 p-4 rounded-2xl text-gray-900"
             />
           </View>
@@ -116,6 +132,8 @@ export default function CreateProfile() {
                 placeholder="+91 XXXXX XXXXX"
                 placeholderTextColor="#999"
                 keyboardType="phone-pad"
+                value={phone}
+                onChangeText={setPhone}
                 className="text-gray-900"
               />
             </View>

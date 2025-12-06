@@ -3,11 +3,9 @@ import { View, Text, TouchableOpacity, StatusBar, Animated, Easing } from "react
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
-import { useAuth } from "@clerk/clerk-expo";
 
 export default function WelcomeScreen() {
   const router = useRouter();
-  const { isSignedIn, isLoaded } = useAuth();
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -15,11 +13,6 @@ export default function WelcomeScreen() {
   const waveAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (isLoaded && isSignedIn) {
-      router.replace("/home");
-      return;
-    }
-
     // Fade + Slide animation
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -51,7 +44,7 @@ export default function WelcomeScreen() {
         }),
       ])
     ).start();
-  }, [isLoaded, isSignedIn]);
+  }, []);
 
   return (
     <View className="flex-1 bg-white">

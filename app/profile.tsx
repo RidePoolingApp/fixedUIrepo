@@ -71,18 +71,31 @@
 // app/profile.tsx
 import { View, TouchableOpacity, ScrollView, Switch, Text } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { Ionicons, MaterialIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import BottomNav from "./components/BottomNav";
 import { ThemedScreen, ThemedView, ThemedText, ThemedTextSecondary } from "./components/Themed";
 import { useThemeStyles } from "./context/themeStyles";
 import { ThemeContext } from "./context/ThemeContext";
 import { useContext } from "react";
 import { useRouter } from "expo-router";
+import { useUser, useClerk } from "@clerk/clerk-expo";
+import { Image } from "react-native";
 
 export default function Profile() {
   const router = useRouter();
-  const { isDark, colors } = useThemeStyles();
+  const { isDark } = useThemeStyles();
   const { theme, toggleTheme } = useContext(ThemeContext);
+  const { user } = useUser();
+  const { signOut } = useClerk();
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      router.replace("/welcome");
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
 
   return (
     <ThemedScreen>
@@ -110,15 +123,26 @@ export default function Profile() {
         {/* USER CARD */}
         <ThemedView className="p-6 rounded-3xl shadow border mb-6">
           <View className="flex-row items-center">
-            <Ionicons
-              name="person-circle-outline"
-              size={80}
-              color={isDark ? "#fff" : "#555"}
-            />
+            {user?.imageUrl ? (
+              <Image
+                source={{ uri: user.imageUrl }}
+                className="w-20 h-20 rounded-full"
+              />
+            ) : (
+              <Ionicons
+                name="person-circle-outline"
+                size={80}
+                color={isDark ? "#fff" : "#555"}
+              />
+            )}
 
             <View className="ml-4">
-              <ThemedText className="text-2xl font-extrabold">John Doe</ThemedText>
-              <ThemedTextSecondary>+91 98765 43210</ThemedTextSecondary>
+              <ThemedText className="text-2xl font-extrabold">
+                {user?.fullName || user?.firstName || "User"}
+              </ThemedText>
+              <ThemedTextSecondary>
+                {user?.primaryEmailAddress?.emailAddress || user?.primaryPhoneNumber?.phoneNumber || "No contact info"}
+              </ThemedTextSecondary>
             </View>
           </View>
         </ThemedView>
@@ -147,11 +171,10 @@ export default function Profile() {
 
           {/* Options */}
           {[
-            { label: "Saved Places", icon: "location-outline", route: "/saved-locations" },
-            { label: "Payments & Wallet", icon: "wallet-outline", route: "/payments" },
-            { label: "Ride History", icon: "time-outline", route: "/bookings" },
-            { label: "Support", icon: "help-circle-outline", route: "/support" },
-            { label: "Privacy & Security", icon: "shield-checkmark-outline", route: "/privacy" },
+            { label: "Payments & Wallet", icon: "wallet-outline" as const, route: "/payments" as const },
+            { label: "Ride History", icon: "time-outline" as const, route: "/bookings" as const },
+            { label: "Support", icon: "help-circle-outline" as const, route: "/support" as const },
+            { label: "Privacy & Security", icon: "shield-checkmark-outline" as const, route: "/privacy" as const },
           ].map((item, i) => (
             <TouchableOpacity
               key={i}
@@ -185,7 +208,7 @@ export default function Profile() {
 
         {/* LOGOUT BUTTON */}
         <TouchableOpacity
-          onPress={() => router.replace("/welcome")}
+          onPress={handleLogout}
           className="bg-red-500 p-5 rounded-2xl items-center shadow"
         >
           <Text style={{ color: "white", fontWeight: "bold", fontSize: 18 }}>Logout</Text>

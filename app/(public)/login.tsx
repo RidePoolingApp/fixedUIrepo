@@ -1,22 +1,38 @@
 // app/login.tsx
-import { View, Text, TouchableOpacity, TextInput, StatusBar, Animated, ActivityIndicator } from "react-native";
+import { View, Text, TouchableOpacity, TextInput, StatusBar, Animated } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { useOAuth } from "@clerk/clerk-expo";
+import { useSignIn, useOAuth } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { signIn, setActive, isLoaded } = useSignIn();
   const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
 
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const onGoogleSignIn = async () => {
+    try {
+      const { createdSessionId, setActive } = await startOAuthFlow();
+
+      if (createdSessionId) {
+        setActive!({ session: createdSessionId });
+        router.replace("/home");
+      }
+    } catch (err: any) {
+      setError(err.errors?.[0]?.message || "Google sign in failed");
+    }
+  };
 
   useEffect(() => {
     Animated.parallel([
@@ -32,22 +48,6 @@ export default function LoginScreen() {
       }),
     ]).start();
   }, []);
-
-  const onGoogleSignIn = async () => {
-    try {
-      setIsLoading(true);
-      const { createdSessionId, setActive } = await startOAuthFlow();
-
-      if (createdSessionId) {
-        setActive!({ session: createdSessionId });
-        router.replace("/home");
-      }
-    } catch (err) {
-      console.error("OAuth error", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   return (
     <View className="flex-1 bg-white">
@@ -93,31 +93,6 @@ export default function LoginScreen() {
           }}
           className="bg-white rounded-3xl p-6 shadow-xl"
         >
-          {/* Google Sign In Button */}
-          <TouchableOpacity
-            className="bg-white border-2 border-gray-300 py-4 rounded-2xl items-center shadow-sm active:scale-95 mb-6"
-            onPress={onGoogleSignIn}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#FACC15" />
-            ) : (
-              <View className="flex-row items-center">
-                <Text className="text-2xl mr-3">🔵</Text>
-                <Text className="text-gray-900 text-lg font-semibold">
-                  Continue with Google
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-
-          {/* Divider */}
-          <View className="flex-row items-center my-6">
-            <View className="flex-1 h-px bg-gray-300" />
-            <Text className="mx-4 text-gray-500 font-medium">OR</Text>
-            <View className="flex-1 h-px bg-gray-300" />
-          </View>
-
           {/* Email Input */}
           <View className="mb-5">
             <Text className="text-gray-700 font-medium mb-2">Email</Text>
@@ -125,6 +100,9 @@ export default function LoginScreen() {
               placeholder="example@domain.com"
               placeholderTextColor="#999"
               keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
               className="bg-gray-100 p-4 rounded-2xl text-gray-900"
             />
           </View>
@@ -138,6 +116,8 @@ export default function LoginScreen() {
                 placeholder="Enter your password"
                 placeholderTextColor="#999"
                 secureTextEntry={!passwordVisible}
+                value={password}
+                onChangeText={setPassword}
                 className="flex-1 text-gray-900"
               />
 
@@ -151,24 +131,57 @@ export default function LoginScreen() {
 
           {/* Forgot Password */}
           <TouchableOpacity
-            onPress={() => router.push("/forgot-password")}
+            onPress={() => router.push("/(public)/forgot-password")}
             className="self-end mt-2"
           >
             <Text className="text-yellow-600 font-semibold">Forgot Password?</Text>
           </TouchableOpacity>
 
+          {error ? (
+            <Text className="text-red-500 text-center mb-2">{error}</Text>
+          ) : null}
+
           {/* Login Button */}
           <TouchableOpacity
             className="bg-yellow-500 py-4 rounded-2xl mt-8 items-center shadow-md active:scale-95"
-            onPress={() => router.push("/home")}
+            onPress={async () => {
+              if (!isLoaded) return;
+
+              try {
+                const result = await signIn.create({
+                  identifier: email,
+                  password,
+                });
+
+                if (result.status === "complete") {
+                  await setActive({ session: result.createdSessionId });
+                  router.replace("/home");
+                }
+              } catch (err: any) {
+                setError(err.errors?.[0]?.message || "Login failed");
+              }
+            }}
           >
             <Text className="text-white text-xl font-semibold">Login</Text>
+          </TouchableOpacity>
+
+          <View className="flex-row items-center my-6">
+            <View className="flex-1 h-px bg-gray-300" />
+            <Text className="mx-4 text-gray-500">OR</Text>
+            <View className="flex-1 h-px bg-gray-300" />
+          </View>
+
+          <TouchableOpacity
+            className="bg-white border-2 border-gray-300 py-4 rounded-2xl items-center shadow-md active:scale-95 flex-row justify-center"
+            onPress={onGoogleSignIn}
+          >
+            <Text className="text-gray-700 text-xl font-semibold">Continue with Google</Text>
           </TouchableOpacity>
 
           {/* Sign Up Navigation */}
           <View className="mt-6 flex-row justify-center">
             <Text className="text-gray-600">Don't have an account? </Text>
-            <TouchableOpacity onPress={() => router.push("/signup")}>
+            <TouchableOpacity onPress={() => router.push("/(public)/signup")}>
               <Text className="text-yellow-600 font-semibold">Sign Up</Text>
             </TouchableOpacity>
           </View>
