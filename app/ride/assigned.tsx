@@ -32,8 +32,6 @@ export default function DriverAssigned() {
   const [paymentStatus, setPaymentStatus] = useState<"pending" | "paid" | "pay_after_trip">("pending");
   const [paymentMethod, setPaymentMethod] = useState("UPI");
   const [cancelling, setCancelling] = useState(false);
-  
-  const proxyPhone = "+918080808080";
 
   const pulse = useRef(new Animated.Value(1)).current;
   
@@ -126,17 +124,18 @@ export default function DriverAssigned() {
     });
   };
 
-  const driverName = ride?.driver?.vehicleMake 
-    ? `Driver` 
-    : "Rahul Verma";
+  const driverName = ride?.driver?.user
+    ? `${ride.driver.user.firstName || ''} ${ride.driver.user.lastName || ''}`.trim() || "Driver"
+    : "Driver";
     
-  const driverRating = ride?.driver?.rating || 4.8;
-  const driverTrips = ride?.driver?.totalTrips || 2450;
+  const driverRating = ride?.driver?.rating || 5.0;
+  const driverTrips = ride?.driver?.totalTrips || 0;
   const vehicleInfo = ride?.driver 
     ? `${ride.driver.vehicleColor} ${ride.driver.vehicleMake} ${ride.driver.vehicleModel}`
-    : "White Sedan";
-  const licensePlate = ride?.driver?.licensePlate || "KA 05 MK 2244";
-  const fare = ride?.fare ? `₹${ride.fare}` : "₹749";
+    : "Vehicle info not available";
+  const licensePlate = ride?.driver?.licensePlate || "N/A";
+  const fare = ride?.fare ? `₹${ride.fare}` : "Calculating...";
+  const driverPhone = ride?.driver?.user?.phone || null;
 
   if (loading) {
     return (
@@ -200,14 +199,14 @@ export default function DriverAssigned() {
             <View className="flex-row items-start mb-2">
               <View className="w-3 h-3 bg-yellow-500 rounded-full mt-1" />
               <ThemedText className="ml-3 flex-1" numberOfLines={2}>
-                {ride.pickupAddress}
+                {ride.pickup?.locationName || ride.pickup?.address || "Pickup location"}
               </ThemedText>
             </View>
             <View className="ml-1 h-4 border-l-2 border-gray-300" />
             <View className="flex-row items-start">
               <View className="w-3 h-3 bg-gray-900 rounded-full mt-1" />
               <ThemedText className="ml-3 flex-1" numberOfLines={2}>
-                {ride.dropAddress}
+                {ride.drop?.locationName || ride.drop?.address || "Drop location"}
               </ThemedText>
             </View>
           </ThemedView>
@@ -270,10 +269,19 @@ export default function DriverAssigned() {
 
         <View className="space-y-4">
           <TouchableOpacity
-            className="bg-yellow-500 p-5 rounded-3xl items-center shadow"
-            onPress={() => Linking.openURL(`tel:${proxyPhone}`)}
+            className={`p-5 rounded-3xl items-center shadow ${driverPhone ? 'bg-yellow-500' : 'bg-gray-400'}`}
+            onPress={() => {
+              if (driverPhone) {
+                Linking.openURL(`tel:${driverPhone}`);
+              } else {
+                Alert.alert("Not Available", "Driver's phone number is not available");
+              }
+            }}
+            disabled={!driverPhone}
           >
-            <Text className="text-white text-lg font-bold">Contact Driver</Text>
+            <Text className="text-white text-lg font-bold">
+              {driverPhone ? "Call Driver" : "Phone Not Available"}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
