@@ -1,23 +1,84 @@
-// app/ride/completed.tsx
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   Image,
   ScrollView,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { useApi, Ride, PaymentMethod, PaymentStatus } from "../services/api";
 
 export default function RideCompleted() {
   const router = useRouter();
+  const api = useApi();
+  const params = useLocalSearchParams<{ rideId?: string }>();
+  const rideId = params.rideId;
+
+  const [ride, setRide] = useState<Ride | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [rating, setRating] = useState(0);
+  const [submittingRating, setSubmittingRating] = useState(false);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+
+  useEffect(() => {
+    const fetchRide = async () => {
+      if (!rideId) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const rideData = await api.getRide(rideId);
+        setRide(rideData);
+        if (rideData.rating) {
+          setRating(rideData.rating.score);
+          setRatingSubmitted(true);
+        }
+      } catch (error) {
+        console.error("Error fetching ride:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRide();
+  }, [rideId, api]);
+
+  const submitRating = async () => {
+    if (!rideId || rating === 0) return;
+    
+    setSubmittingRating(true);
+    try {
+      await api.rateRide(rideId, rating);
+      setRatingSubmitted(true);
+      Alert.alert("Thank you!", "Your rating has been submitted.");
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to submit rating");
+    } finally {
+      setSubmittingRating(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-gray-50">
+        <ActivityIndicator size="large" color="#FACC15" />
+      </View>
+    );
+  }
+
+  const pickupAddress = ride?.pickup?.locationName 
+    ? `${ride.pickup.locationName}, ${ride.pickup.city}` 
+    : "Pickup Location";
+  const dropAddress = ride?.drop?.locationName 
+    ? `${ride.drop.locationName}, ${ride.drop.city}` 
+    : "Drop Location";
 
   return (
     <View className="flex-1 bg-gray-50">
-
-      {/* PREMIUM HEADER */}
       <View className="absolute top-0 left-0 right-0">
         <Svg height="260" width="100%">
           <Path
@@ -32,7 +93,6 @@ export default function RideCompleted() {
         </Svg>
       </View>
 
-      {/* PAGE HEADER */}
       <View className="absolute top-14 w-full px-6 z-10">
         <Text className="text-3xl font-extrabold text-gray-900">
           Ride Completed
@@ -47,53 +107,46 @@ export default function RideCompleted() {
         contentContainerStyle={{ paddingBottom: 180 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* RIDE SUMMARY CARD */}
         <View
           className="bg-white rounded-3xl p-6 shadow-lg border border-gray-100 mb-6"
           style={{ elevation: 6 }}
         >
           <Text className="text-xl text-gray-900 font-bold">Trip Summary</Text>
 
-          {/* ROUTE */}
           <View className="mt-6">
-            {/* From */}
             <View className="flex-row items-center">
               <View className="w-3 h-3 bg-yellow-500 rounded-full" />
               <Text className="ml-3 text-gray-900 text-lg font-semibold">
-                123 MG Road, Bangalore
+                {pickupAddress}
               </Text>
             </View>
 
-            {/* line */}
             <View className="ml-1 mt-2 mb-2 h-10 border-l-2 border-gray-300" />
 
-            {/* To */}
             <View className="flex-row items-center">
               <View className="w-3 h-3 bg-gray-700 rounded-full" />
               <Text className="ml-3 text-gray-900 text-lg font-semibold">
-                Airport Terminal 1
+                {dropAddress}
               </Text>
             </View>
           </View>
 
-          {/* Distance + Time */}
           <View className="flex-row justify-between mt-6">
             <View>
               <Text className="text-gray-500">Distance</Text>
               <Text className="text-gray-900 text-lg font-semibold">
-                12.8 km
+                {ride?.distance || 0} km
               </Text>
             </View>
             <View>
               <Text className="text-gray-500">Duration</Text>
               <Text className="text-gray-900 text-lg font-semibold">
-                23 min
+                {ride?.duration || 0} min
               </Text>
             </View>
           </View>
         </View>
 
-        {/* FARE DETAILS */}
         <View
           className="bg-white rounded-3xl p-6 shadow-lg border border-gray-100 mb-6"
           style={{ elevation: 6 }}
@@ -101,31 +154,6 @@ export default function RideCompleted() {
           <Text className="text-xl text-gray-900 font-bold">Fare Details</Text>
 
           <View className="mt-4">
-            <View className="flex-row justify-between mb-2">
-              <Text className="text-gray-600">Base Fare</Text>
-              <Text className="text-gray-900 font-semibold">₹220</Text>
-            </View>
-
-            <View className="flex-row justify-between mb-2">
-              <Text className="text-gray-600">Distance Fare</Text>
-              <Text className="text-gray-900 font-semibold">₹60</Text>
-            </View>
-
-            <View className="flex-row justify-between mb-2">
-              <Text className="text-gray-600">Time Fare</Text>
-              <Text className="text-gray-900 font-semibold">₹20</Text>
-            </View>
-
-            <View className="flex-row justify-between mb-2">
-              <Text className="text-gray-600">Platform Fee</Text>
-              <Text className="text-gray-900 font-semibold">₹15</Text>
-            </View>
-
-            <View className="flex-row justify-between mb-2">
-              <Text className="text-gray-600">Taxes</Text>
-              <Text className="text-gray-900 font-semibold">₹8</Text>
-            </View>
-
             <View className="h-[1px] bg-gray-200 my-3" />
 
             <View className="flex-row justify-between">
@@ -133,38 +161,68 @@ export default function RideCompleted() {
                 Total Amount
               </Text>
               <Text className="text-yellow-600 text-2xl font-extrabold">
-                ₹323
+                ₹{ride?.fare || 0}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* DRIVER DETAILS */}
-        <View
-          className="bg-white rounded-3xl p-6 shadow-lg border border-gray-100 mb-6"
-          style={{ elevation: 6 }}
-        >
-          <Text className="text-xl font-bold text-gray-900">Driver</Text>
+        {ride?.driver && (
+          <View
+            className="bg-white rounded-3xl p-6 shadow-lg border border-gray-100 mb-6"
+            style={{ elevation: 6 }}
+          >
+            <Text className="text-xl font-bold text-gray-900">Driver</Text>
 
-          <View className="mt-4 flex-row items-center">
-            <Image
-              source={{ uri: "https://i.ibb.co/ZY7fCFw/driver.jpg" }}
-              className="w-16 h-16 rounded-full"
-            />
-            <View className="ml-4">
-              <Text className="text-lg text-gray-900 font-semibold">
-                Rahul Verma
-              </Text>
-              <Text className="text-gray-500">⭐ 4.8 • 2,450 trips</Text>
+            <View className="mt-4 flex-row items-center">
+              <Image
+                source={{ uri: ride.driver.user?.profileImage || "https://i.ibb.co/ZY7fCFw/driver.jpg" }}
+                className="w-16 h-16 rounded-full"
+              />
+              <View className="ml-4">
+                <Text className="text-lg text-gray-900 font-semibold">
+                  {ride.driver.user?.firstName || "Driver"} {ride.driver.user?.lastName || ""}
+                </Text>
+                <Text className="text-gray-500">⭐ {ride.driver.rating?.toFixed(1) || "5.0"} • {ride.driver.totalTrips || 0} trips</Text>
 
-              <Text className="mt-2 text-gray-700 font-medium">
-                Sedan • KA 05 MK 2244
-              </Text>
+                <Text className="mt-2 text-gray-700 font-medium">
+                  {ride.driver.vehicleType} • {ride.driver.licensePlate}
+                </Text>
+              </View>
             </View>
-          </View>
-        </View>
 
-        {/* PAYMENT METHOD */}
+            {!ratingSubmitted && (
+              <View className="mt-6">
+                <Text className="text-gray-700 font-medium mb-2">Rate your driver</Text>
+                <View className="flex-row justify-center">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <TouchableOpacity key={star} onPress={() => setRating(star)} className="mx-2">
+                      <Ionicons 
+                        name={star <= rating ? "star" : "star-outline"} 
+                        size={36} 
+                        color="#FACC15" 
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {rating > 0 && (
+                  <TouchableOpacity
+                    onPress={submitRating}
+                    disabled={submittingRating}
+                    className="mt-4 bg-yellow-500 py-3 rounded-2xl items-center"
+                  >
+                    {submittingRating ? (
+                      <ActivityIndicator color="white" />
+                    ) : (
+                      <Text className="text-white font-bold">Submit Rating</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
         <View
           className="bg-white rounded-3xl p-6 shadow-lg border border-gray-100 mb-6"
           style={{ elevation: 6 }}
@@ -174,13 +232,16 @@ export default function RideCompleted() {
           <View className="flex-row items-center mt-4 justify-between">
             <View className="flex-row items-center">
               <Ionicons name="card-outline" size={24} color="#333" />
-              <Text className="ml-3 text-gray-900 text-lg">UPI</Text>
+              <Text className="ml-3 text-gray-900 text-lg">
+                {ride?.payment?.method || "CASH"}
+              </Text>
             </View>
-            <Text className="text-yellow-600 font-bold text-lg">Paid</Text>
+            <Text className={`font-bold text-lg ${ride?.payment?.status === PaymentStatus.COMPLETED ? "text-green-600" : "text-yellow-600"}`}>
+              {ride?.payment?.status === PaymentStatus.COMPLETED ? "Paid" : "Pending"}
+            </Text>
           </View>
         </View>
 
-        {/* BOTTOM BUTTONS */}
         <View>
           <TouchableOpacity
             className="bg-yellow-500 py-4 rounded-3xl items-center"
