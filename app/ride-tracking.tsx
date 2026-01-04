@@ -55,7 +55,7 @@ export default function RideTracking() {
       }
     };
     checkAuth();
-  }, [isLoaded, isSignedIn, getToken]);
+  }, [isLoaded, isSignedIn]);
 
   // Fetch ride details
   const fetchRide = useCallback(async () => {
