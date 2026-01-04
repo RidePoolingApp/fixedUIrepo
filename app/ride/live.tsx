@@ -75,13 +75,13 @@ export default function LiveTracking() {
     } finally {
       setLoading(false);
     }
-  }, [rideId, api]);
+  }, [rideId]);
 
   useEffect(() => {
     fetchRide();
     const interval = setInterval(fetchRide, 5000);
     return () => clearInterval(interval);
-  }, [fetchRide]);
+  }, [rideId]);
 
   const handleCall = () => {
     if (ride?.driver?.user?.phone) {
