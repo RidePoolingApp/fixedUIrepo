@@ -40,7 +40,7 @@ export default function Payments() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [api]);
+  }, []);
 
   useEffect(() => {
     fetchPayments();
