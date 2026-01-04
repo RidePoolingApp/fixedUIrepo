@@ -1,33 +1,52 @@
-// app/driver/booking/start-trip.tsx
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   TextInput,
   TouchableOpacity,
   Alert,
   Keyboard,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ThemedView, ThemedText } from "../../components/Themed";
 import { Ionicons } from "@expo/vector-icons";
+import { useApi, Ride } from "../../services/api";
 
 export default function StartTrip() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ bookingId?: string }>();
-  const bookingId = params.bookingId ?? "BKG_1001";
+  const api = useApi();
+  const params = useLocalSearchParams<{ bookingId?: string; rideId?: string }>();
+  const rideId = params.rideId || params.bookingId || "";
 
   const [otp, setOtp] = useState(["", "", "", ""]);
+  const [loading, setLoading] = useState(false);
+  const [ride, setRide] = useState<Ride | null>(null);
+  const [fetchingRide, setFetchingRide] = useState(true);
   const inputRefs = useRef<Array<TextInput | null>>([]);
 
-  const CORRECT_OTP = "1234"; // Replace with server OTP validation
+  useEffect(() => {
+    const fetchRide = async () => {
+      if (!rideId) {
+        setFetchingRide(false);
+        return;
+      }
+      try {
+        const rideData = await api.getRide(rideId);
+        setRide(rideData);
+      } catch (error) {
+        console.error("Error fetching ride:", error);
+      } finally {
+        setFetchingRide(false);
+      }
+    };
+    fetchRide();
+  }, [rideId, api]);
 
   const handleChange = (text: string, index: number) => {
     if (/^[0-9]$/.test(text)) {
       const newOtp = [...otp];
       newOtp[index] = text;
       setOtp(newOtp);
-
-      // Move to next input
       if (index < 3) {
         inputRefs.current[index + 1]?.focus();
       }
@@ -38,49 +57,64 @@ export default function StartTrip() {
     }
   };
 
-  const verifyOtp = () => {
+  const verifyAndStartTrip = async () => {
     const entered = otp.join("");
+    
+    if (entered.length < 4) {
+      Alert.alert("Invalid OTP", "Please enter the complete OTP");
+      return;
+    }
 
-    if (entered === CORRECT_OTP) {
+    setLoading(true);
+    try {
+      await api.startRide(rideId);
       Alert.alert("OTP Verified", "Trip Started Successfully!", [
         {
           text: "Continue",
-          onPress: () =>
-            router.replace(`/driver/booking/active-trip?bookingId=${bookingId}`),
+          onPress: () => router.replace(`/driver/booking/active-trip?rideId=${rideId}`),
         },
       ]);
-    } else {
-      Alert.alert("Incorrect OTP", "Please re-check the OTP.");
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to start trip. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
+  if (fetchingRide) {
+    return (
+      <ThemedView className="flex-1 items-center justify-center">
+        <ActivityIndicator size="large" color="#FACC15" />
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView className="flex-1 px-6 py-10">
-      {/* Title */}
       <ThemedText className="text-3xl font-extrabold">Start Trip</ThemedText>
       <ThemedText className="text-gray-500 mt-1">
-        Booking ID: {bookingId}
+        Ride ID: {rideId}
       </ThemedText>
 
-      {/* Rider Info */}
       <ThemedView className="mt-6 p-5 rounded-2xl border">
         <View className="flex-row items-center">
           <Ionicons name="person-circle-outline" size={40} color="#444" />
           <View className="ml-3">
-            <ThemedText className="font-semibold text-lg">A. Patel</ThemedText>
-            <ThemedText className="text-xs text-gray-500">4.9 ★ Rider</ThemedText>
+            <ThemedText className="font-semibold text-lg">
+              {ride?.rider?.firstName || "Rider"} {ride?.rider?.lastName || ""}
+            </ThemedText>
+            <ThemedText className="text-xs text-gray-500">Passenger</ThemedText>
           </View>
         </View>
 
         <ThemedText className="mt-4 text-sm text-gray-500">
-          Pickup: Airport Terminal 1  
+          Pickup: {ride?.pickup?.locationName || "Pickup Location"}, {ride?.pickup?.city || ""}
         </ThemedText>
         <ThemedText className="text-sm text-gray-500">
-          Drop: City Center Mall  
+          Drop: {ride?.drop?.locationName || "Drop Location"}, {ride?.drop?.city || ""}
         </ThemedText>
       </ThemedView>
 
-      {/* OTP */}
       <ThemedText className="mt-10 text-lg font-semibold">
         Enter OTP to Start Trip
       </ThemedText>
@@ -99,7 +133,6 @@ export default function StartTrip() {
         ))}
       </View>
 
-      {/* QR Option */}
       <TouchableOpacity
         onPress={() => Alert.alert("Scanning...", "QR scan coming soon")}
         className="mt-6 flex-row items-center"
@@ -110,18 +143,21 @@ export default function StartTrip() {
         </ThemedText>
       </TouchableOpacity>
 
-      {/* Start Trip Button */}
       <TouchableOpacity
-        disabled={otp.join("").length < 4}
+        disabled={otp.join("").length < 4 || loading}
         onPress={() => {
           Keyboard.dismiss();
-          verifyOtp();
+          verifyAndStartTrip();
         }}
         className={`mt-10 p-4 rounded-2xl items-center ${
           otp.join("").length < 4 ? "bg-gray-300" : "bg-emerald-600"
         }`}
       >
-        <ThemedText className="text-white font-bold text-lg">Start Trip</ThemedText>
+        {loading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <ThemedText className="text-white font-bold text-lg">Start Trip</ThemedText>
+        )}
       </TouchableOpacity>
     </ThemedView>
   );
