@@ -1,24 +1,31 @@
-import { View, Text, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useContext } from "react";
 import { UserTypeContext } from "../../context/UserTypeContext";
+import { useApi, VehicleType } from "../../services/api";
 
 export default function Review() {
   const router = useRouter();
+  const api = useApi();
   const { setUserType } = useContext(UserTypeContext);
+  const [submitting, setSubmitting] = useState(false);
 
   const [data, setData] = useState({
     fullName: "",
     age: "",
     gender: "",
     vehicleType: "",
+    make: "",
     model: "",
+    year: "",
+    color: "",
     number: "",
     seats: "",
+    licenseNumber: "",
+    licenseExpiry: "",
   });
 
   const [docs, setDocs] = useState({
@@ -27,35 +34,65 @@ export default function Review() {
     insurance: null,
   });
 
-//   const [bank, setBank] = useState({
-//     holderName: "",
-//     accountNumber: "",
-//     ifsc: "",
-//     upi: "",
-//   });
-
-  // Fetching onboarding data from storage or API
   useEffect(() => {
     (async () => {
-      // If you saved previous onboarding data in AsyncStorage, load here
       const personal = await AsyncStorage.getItem("driver_personal");
       const vehicle = await AsyncStorage.getItem("driver_vehicle");
       const documents = await AsyncStorage.getItem("driver_docs");
-    //   const bankInfo = await AsyncStorage.getItem("driver_bank");
 
-      if (personal) setData(JSON.parse(personal));
-      if (vehicle) setData((prev) => ({ ...prev, ...JSON.parse(vehicle) }));
+      if (personal) {
+        const parsed = JSON.parse(personal);
+        setData((prev) => ({ ...prev, ...parsed }));
+      }
+      if (vehicle) {
+        const parsed = JSON.parse(vehicle);
+        setData((prev) => ({ ...prev, ...parsed }));
+      }
       if (documents) setDocs(JSON.parse(documents));
-    //   if (bankInfo) setBank(JSON.parse(bankInfo));
     })();
   }, []);
 
-  const submitDriver = async () => {
-    // mark user as driver
-    setUserType("driver-approved");
+  const mapVehicleType = (type: string): VehicleType => {
+    const typeMap: { [key: string]: VehicleType } = {
+      "SEDAN": VehicleType.SEDAN,
+      "SUV": VehicleType.SUV,
+      "HATCHBACK": VehicleType.HATCHBACK,
+      "AUTO": VehicleType.AUTO,
+      "BIKE": VehicleType.BIKE,
+    };
+    return typeMap[type] || VehicleType.SEDAN;
+  };
 
-    // redirect
-    router.replace("/driver/dashboard");
+  const submitDriver = async () => {
+    setSubmitting(true);
+    try {
+      const licenseExpiry = data.licenseExpiry || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+
+      await api.registerDriver({
+        licenseNumber: data.licenseNumber,
+        licenseExpiry,
+        vehicleType: mapVehicleType(data.vehicleType),
+        vehicleMake: data.make,
+        vehicleModel: data.model,
+        vehicleYear: parseInt(data.year) || new Date().getFullYear(),
+        vehicleColor: data.color,
+        licensePlate: data.number,
+      });
+
+      await AsyncStorage.removeItem("driver_personal");
+      await AsyncStorage.removeItem("driver_vehicle");
+      await AsyncStorage.removeItem("driver_docs");
+
+      setUserType("driver-approved");
+      Alert.alert("Success", "Your driver profile has been created!", [
+        { text: "Continue", onPress: () => router.replace("/driver/dashboard") }
+      ]);
+    } catch (error: any) {
+      console.error("Error registering driver:", error);
+      Alert.alert("Error", error.message || "Failed to register as driver. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -146,12 +183,17 @@ export default function Review() {
         {/* SUBMIT BUTTON */}
         <TouchableOpacity
           onPress={submitDriver}
-          className="bg-yellow-500 p-5 rounded-3xl items-center shadow-lg"
+          disabled={submitting}
+          className={`p-5 rounded-3xl items-center shadow-lg ${submitting ? "bg-yellow-400" : "bg-yellow-500"}`}
           style={{ elevation: 6 }}
         >
-          <Text className="text-white text-lg font-bold">
-            Submit & Become Driver
-          </Text>
+          {submitting ? (
+            <ActivityIndicator color="white" />
+          ) : (
+            <Text className="text-white text-lg font-bold">
+              Submit & Become Driver
+            </Text>
+          )}
         </TouchableOpacity>
       </ScrollView>
     </View>
