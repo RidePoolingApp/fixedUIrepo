@@ -58,7 +58,7 @@ export default function IncomingRequest() {
       }
     };
     checkAuth();
-  }, [isLoaded, isSignedIn, getToken]);
+  }, [isLoaded, isSignedIn]);
 
   // Fetch pending ride requests
   const fetchPendingRides = useCallback(async () => {
@@ -83,7 +83,7 @@ export default function IncomingRequest() {
     } finally {
       setLoading(false);
     }
-  }, [authReady, ride]);
+  }, [authReady]);
 
   // Initialize socket connection
   useEffect(() => {
@@ -109,13 +109,11 @@ export default function IncomingRequest() {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           setRide(data.ride);
           setSeconds(30);
-          fetchPendingRides();
         });
 
         // Listen for ride:new (broadcast to all drivers)
         socketRef.current.on("ride:new", (newRide: Ride) => {
           console.log("New ride broadcast:", newRide);
-          fetchPendingRides();
         });
 
         socketRef.current.on("disconnect", () => {
@@ -140,7 +138,7 @@ export default function IncomingRequest() {
         socketRef.current.disconnect();
       }
     };
-  }, [authReady]);
+  }, [authReady, fetchPendingRides]);
 
   useEffect(() => {
     Animated.parallel([
