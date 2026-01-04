@@ -45,7 +45,7 @@ export default function RideCompleted() {
       }
     };
     fetchRide();
-  }, [rideId, api]);
+  }, [rideId]);
 
   const submitRating = async () => {
     if (!rideId || rating === 0) return;
@@ -240,6 +240,19 @@ export default function RideCompleted() {
               {ride?.payment?.status === PaymentStatus.COMPLETED ? "Paid" : "Pending"}
             </Text>
           </View>
+
+          {/* Pay Now button if payment is pending */}
+          {ride?.payment?.status !== PaymentStatus.COMPLETED && (
+            <TouchableOpacity
+              onPress={() => router.push({
+                pathname: "/ride/payment",
+                params: { rideId, fare: String(ride?.fare || 0) },
+              })}
+              className="bg-yellow-500 py-3 rounded-2xl items-center mt-4"
+            >
+              <Text className="text-white font-bold text-lg">Pay Now - ₹{ride?.fare || 0}</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <View>
