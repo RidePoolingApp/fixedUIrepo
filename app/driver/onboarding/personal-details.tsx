@@ -9,6 +9,7 @@ import Svg, { Path } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function PersonalDetails() {
   const router = useRouter();
@@ -16,6 +17,11 @@ export default function PersonalDetails() {
   const [fullName, setFullName] = useState("");
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
+
+  const handleNext = async () => {
+    await AsyncStorage.setItem("driver_personal", JSON.stringify({ fullName, age, gender }));
+    router.push("/driver/onboarding/vehicle");
+  };
 
   return (
     <View className="flex-1 bg-gray-50">
@@ -114,7 +120,7 @@ export default function PersonalDetails() {
 
         {/* NEXT BUTTON */}
         <TouchableOpacity
-          onPress={() => router.push("/driver/onboarding/vehicle")}
+          onPress={handleNext}
           disabled={!fullName || !age || !gender}
           className={`p-5 rounded-3xl items-center mt-4 ${
             fullName && age && gender
