@@ -40,7 +40,7 @@ export default function Bookings() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [api]);
+  }, []);
 
   useEffect(() => {
     fetchRides();
