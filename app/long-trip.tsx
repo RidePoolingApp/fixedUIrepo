@@ -11,9 +11,43 @@ import {
 import Svg, { Path } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useApi, RideType, Location, LocationInput } from "./services/api";
+
+// Default fare rates (used when no driver is selected)
+const DEFAULT_BASE_FARE = 30;
+const DEFAULT_FARE_PER_KM = 12;
+
+// Calculate distance using Haversine formula
+const calculateDistance = (pickup: Location | null, drop: Location | null): number => {
+  if (!pickup || !drop) return 0;
+  
+  if (pickup.lat && pickup.lng && drop.lat && drop.lng) {
+    const R = 6371; // Earth's radius in km
+    const dLat = (drop.lat - pickup.lat) * Math.PI / 180;
+    const dLng = (drop.lng - pickup.lng) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(pickup.lat * Math.PI / 180) * Math.cos(drop.lat * Math.PI / 180) *
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c;
+    // Add 30% for road distance vs straight line
+    return Math.round(distance * 1.3 * 10) / 10;
+  }
+  
+  // Fallback estimates
+  if (pickup.city === drop.city) return 10;
+  if (pickup.district === drop.district) return 30;
+  return 50;
+};
+
+// Calculate fare based on distance
+const calculateFare = (distanceKm: number, baseFare = DEFAULT_BASE_FARE, farePerKm = DEFAULT_FARE_PER_KM): number => {
+  if (distanceKm <= 1) return baseFare;
+  return Math.round(baseFare + farePerKm * (distanceKm - 1));
+};
 
 export default function LongTrip() {
   const router = useRouter();
@@ -36,6 +70,15 @@ export default function LongTrip() {
   const [loading, setLoading] = useState(false);
   
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Calculate estimated distance and fare
+  const estimatedDistance = useMemo(() => {
+    return calculateDistance(fromLocation, toLocation);
+  }, [fromLocation, toLocation]);
+
+  const estimatedFare = useMemo(() => {
+    return calculateFare(estimatedDistance);
+  }, [estimatedDistance]);
 
   useEffect(() => {
     if (params.from) setFromText(params.from as string);
@@ -119,11 +162,15 @@ export default function LongTrip() {
         lng: toLocation.lng,
       };
 
+      console.log("Creating long trip with fare:", estimatedFare, "distance:", estimatedDistance);
+
       const ride = await api.createRide({
         type: RideType.LONG_TRIP,
         pickup,
         drop,
         scheduledAt: date > new Date() ? date.toISOString() : undefined,
+        estimatedFare: estimatedFare,
+        estimatedDistance: estimatedDistance,
       });
 
       router.push({
@@ -281,16 +328,45 @@ export default function LongTrip() {
           />
         </View>
 
+        {/* Estimated Fare Display */}
+        {fromLocation && toLocation && estimatedDistance > 0 && (
+          <View
+            className="bg-yellow-50 rounded-3xl p-6 shadow border border-yellow-200 mt-6"
+            style={{ elevation: 5 }}
+          >
+            <Text className="text-gray-700 font-semibold mb-3">Trip Estimate</Text>
+            <View className="flex-row justify-between">
+              <View>
+                <Text className="text-gray-500 text-sm">Distance</Text>
+                <Text className="text-gray-900 text-xl font-bold">{estimatedDistance} km</Text>
+              </View>
+              <View className="items-end">
+                <Text className="text-gray-500 text-sm">Est. Fare</Text>
+                <Text className="text-yellow-600 text-2xl font-extrabold">₹{estimatedFare}</Text>
+              </View>
+            </View>
+            <Text className="text-gray-400 text-xs mt-2">
+              *Final fare may vary based on driver rates
+            </Text>
+          </View>
+        )}
+
         <TouchableOpacity
           onPress={handleSearchCabs}
-          disabled={loading}
-          className="bg-yellow-500 mt-8 p-5 rounded-3xl items-center shadow"
+          disabled={loading || !fromLocation || !toLocation}
+          className={`mt-8 p-5 rounded-3xl items-center shadow ${
+            fromLocation && toLocation ? "bg-yellow-500" : "bg-gray-300"
+          }`}
           style={{ elevation: 5, opacity: loading ? 0.7 : 1 }}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text className="text-white text-lg font-bold">Search Cabs</Text>
+            <Text className="text-white text-lg font-bold">
+              {fromLocation && toLocation 
+                ? `Search Cabs - ₹${estimatedFare}` 
+                : "Select locations first"}
+            </Text>
           )}
         </TouchableOpacity>
       </ScrollView>
