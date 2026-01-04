@@ -4,28 +4,71 @@ import {
   TouchableOpacity,
   ScrollView,
   Animated,
+  ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { useRouter } from "expo-router";
+import { useApi, DriverEarning, EarningType } from "../services/api";
 
 export default function DriverEarnings() {
   const router = useRouter();
+  const api = useApi();
 
   const tabs = ["Today", "Week", "Month"];
   const [active, setActive] = useState("Today");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [earnings, setEarnings] = useState<DriverEarning[]>([]);
+  const [totalEarnings, setTotalEarnings] = useState(0);
 
-  // Fake earnings data
-  const data = {
-    Today: { earnings: "₹1,450", rides: 12, hours: 5.2 },
-    Week: { earnings: "₹9,840", rides: 62, hours: 41 },
-    Month: { earnings: "₹38,200", rides: 198, hours: 162 },
-  };
-
-  // Graph animation
   const graphAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  const getDateRange = (period: string) => {
+    const now = new Date();
+    let from: string;
+    
+    switch (period) {
+      case "Week":
+        const weekAgo = new Date(now);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        from = weekAgo.toISOString().split('T')[0];
+        break;
+      case "Month":
+        const monthAgo = new Date(now);
+        monthAgo.setMonth(monthAgo.getMonth() - 1);
+        from = monthAgo.toISOString().split('T')[0];
+        break;
+      case "Today":
+      default:
+        from = now.toISOString().split('T')[0];
+        break;
+    }
+    
+    return { from, to: now.toISOString().split('T')[0] };
+  };
+
+  const fetchEarnings = useCallback(async () => {
+    try {
+      const { from, to } = getDateRange(active);
+      const data = await api.getDriverEarnings(from, to);
+      setEarnings(data.earnings);
+      setTotalEarnings(data.total);
+    } catch (error) {
+      console.error("Error fetching earnings:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [api, active]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchEarnings();
+  }, [active, fetchEarnings]);
 
   useEffect(() => {
     Animated.timing(graphAnim, {
@@ -40,6 +83,37 @@ export default function DriverEarnings() {
       useNativeDriver: true,
     }).start();
   }, [active]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchEarnings();
+  };
+
+  const getRideCount = () => earnings.filter(e => e.type === EarningType.RIDE).length;
+
+  const getEarningTypeLabel = (type: EarningType) => {
+    switch (type) {
+      case EarningType.RIDE: return "Ride Earning";
+      case EarningType.BONUS: return "Bonus";
+      case EarningType.TIP: return "Tip";
+      case EarningType.REFERRAL: return "Referral Bonus";
+      default: return type;
+    }
+  };
+
+  const generateGraphBars = () => {
+    if (earnings.length === 0) return [20, 20, 20, 20, 20, 20, 20];
+    
+    const dailyTotals: { [key: string]: number } = {};
+    earnings.forEach(e => {
+      const day = new Date(e.date).toDateString();
+      dailyTotals[day] = (dailyTotals[day] || 0) + e.amount;
+    });
+    
+    const values = Object.values(dailyTotals).slice(-7);
+    const max = Math.max(...values, 1);
+    return values.map(v => Math.max(20, (v / max) * 140));
+  };
 
   return (
     <View className="flex-1 bg-gray-50">
@@ -87,63 +161,85 @@ export default function DriverEarnings() {
         })}
       </View>
 
-      <ScrollView className="px-6 mt-6" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 180 }}>
-        {/* EARNINGS CARD */}
-        <Animated.View style={{ opacity: fadeAnim }} className="bg-white p-6 rounded-3xl shadow border border-gray-200">
-          <Text className="text-gray-500">Total Earnings</Text>
-          <Text className="text-4xl font-extrabold text-gray-900 mt-2">{data[active].earnings}</Text>
-
-          <View className="flex-row justify-between mt-4">
-            <View>
-              <Text className="text-gray-500">Rides</Text>
-              <Text className="text-xl font-bold text-gray-800">{data[active].rides}</Text>
-            </View>
-            <View>
-              <Text className="text-gray-500">Hours Online</Text>
-              <Text className="text-xl font-bold text-gray-800">{data[active].hours}</Text>
-            </View>
+      <ScrollView 
+        className="px-6 mt-6" 
+        showsVerticalScrollIndicator={false} 
+        contentContainerStyle={{ paddingBottom: 180 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#FACC15"]} />}
+      >
+        {loading ? (
+          <View className="items-center py-10">
+            <ActivityIndicator size="large" color="#FACC15" />
           </View>
-        </Animated.View>
+        ) : (
+          <>
+            {/* EARNINGS CARD */}
+            <Animated.View style={{ opacity: fadeAnim }} className="bg-white p-6 rounded-3xl shadow border border-gray-200">
+              <Text className="text-gray-500">Total Earnings</Text>
+              <Text className="text-4xl font-extrabold text-gray-900 mt-2">₹{totalEarnings.toLocaleString()}</Text>
 
-        {/* GRAPH PLACEHOLDER (Animated Bars) */}
-        <Text className="text-lg font-bold text-gray-900 mt-8">Earnings Overview</Text>
+              <View className="flex-row justify-between mt-4">
+                <View>
+                  <Text className="text-gray-500">Rides</Text>
+                  <Text className="text-xl font-bold text-gray-800">{getRideCount()}</Text>
+                </View>
+                <View>
+                  <Text className="text-gray-500">Total Transactions</Text>
+                  <Text className="text-xl font-bold text-gray-800">{earnings.length}</Text>
+                </View>
+              </View>
+            </Animated.View>
 
-        <Animated.View
-          style={{
-            opacity: graphAnim,
-            transform: [
-              {
-                translateY: graphAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }),
-              },
-            ],
-          }}
-          className="bg-white rounded-3xl p-6 mt-3 shadow border border-gray-200"
-        >
-          {/* FAKE GRAPH BARS */}
-          <View className="flex-row justify-between items-end h-40">
-            {[60, 100, 80, 140, 110, 70, 90].map((h, i) => (
-              <View key={i} style={{ height: h }} className="w-6 bg-yellow-400 rounded-xl" />
-            ))}
-          </View>
-        </Animated.View>
+            {/* GRAPH PLACEHOLDER (Animated Bars) */}
+            <Text className="text-lg font-bold text-gray-900 mt-8">Earnings Overview</Text>
 
-        {/* RECENT PAYMENTS */}
-        <Text className="text-lg font-bold mt-10 text-gray-900">Recent Payments</Text>
+            <Animated.View
+              style={{
+                opacity: graphAnim,
+                transform: [
+                  {
+                    translateY: graphAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }),
+                  },
+                ],
+              }}
+              className="bg-white rounded-3xl p-6 mt-3 shadow border border-gray-200"
+            >
+              {/* GRAPH BARS */}
+              <View className="flex-row justify-between items-end h-40">
+                {generateGraphBars().map((h, i) => (
+                  <View key={i} style={{ height: h }} className="w-6 bg-yellow-400 rounded-xl" />
+                ))}
+              </View>
+            </Animated.View>
 
-        {[1, 2, 3, 4].map((item) => (
-          <View
-            key={item}
-            className="bg-white p-5 rounded-2xl shadow mt-3 border border-gray-200 flex-row justify-between"
-            style={{ elevation: 4 }}
-          >
-            <View>
-              <Text className="text-gray-800 font-semibold">Ride #{2100 + item}</Text>
-              <Text className="text-gray-500 text-sm">Completed • UPI Payment</Text>
-            </View>
+            {/* RECENT PAYMENTS */}
+            <Text className="text-lg font-bold mt-10 text-gray-900">Recent Payments</Text>
 
-            <Text className="text-yellow-600 font-bold text-lg">₹{120 + item * 10}</Text>
-          </View>
-        ))}
+            {earnings.length === 0 ? (
+              <View className="bg-white p-5 rounded-2xl shadow mt-3 border border-gray-200 items-center">
+                <Ionicons name="wallet-outline" size={40} color="#ccc" />
+                <Text className="text-gray-500 mt-2">No earnings yet</Text>
+              </View>
+            ) : (
+              earnings.slice(0, 10).map((item) => (
+                <View
+                  key={item.id}
+                  className="bg-white p-5 rounded-2xl shadow mt-3 border border-gray-200 flex-row justify-between"
+                  style={{ elevation: 4 }}
+                >
+                  <View>
+                    <Text className="text-gray-800 font-semibold">{getEarningTypeLabel(item.type)}</Text>
+                    <Text className="text-gray-500 text-sm">
+                      {new Date(item.date).toLocaleDateString()} • {item.description || "Completed"}
+                    </Text>
+                  </View>
+
+                  <Text className="text-yellow-600 font-bold text-lg">₹{item.amount}</Text>
+                </View>
+              ))
+            )}
+          </>
+        )}
       </ScrollView>
     </View>
   );
