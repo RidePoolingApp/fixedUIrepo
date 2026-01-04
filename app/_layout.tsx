@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { registerForPushNotifications } from "./utils/notifications";
 import { ThemeProvider } from "./context/ThemeContext";
 import { UserTypeProvider } from "./context/UserTypeContext";
+import { ApiProvider } from "./context/ApiContext";
 import { ClerkProvider, ClerkLoaded } from "@clerk/clerk-expo";
 import { tokenCache } from "./utils/tokenCache";
 
@@ -24,11 +25,13 @@ export default function RootLayout() {
   return (
     <ClerkProvider tokenCache={tokenCache} publishableKey={publishableKey}>
       <ClerkLoaded>
-        <UserTypeProvider>
-          <ThemeProvider>
-            <Stack screenOptions={{ headerShown: false }} />
-          </ThemeProvider>
-        </UserTypeProvider>
+        <ApiProvider>
+          <UserTypeProvider>
+            <ThemeProvider>
+              <Stack screenOptions={{ headerShown: false }} />
+            </ThemeProvider>
+          </UserTypeProvider>
+        </ApiProvider>
       </ClerkLoaded>
     </ClerkProvider>
   );
