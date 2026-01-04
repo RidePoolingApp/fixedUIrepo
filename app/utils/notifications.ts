@@ -1,5 +1,6 @@
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
+import Constants from "expo-constants";
 import { Platform } from "react-native";
 
 export async function registerForPushNotifications() {
@@ -20,8 +21,13 @@ export async function registerForPushNotifications() {
       return null;
     }
 
-    token = (await Notifications.getExpoPushTokenAsync()).data;
-    console.log("Expo Push Token:", token);
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    if (projectId) {
+      token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+      console.log("Expo Push Token:", token);
+    } else {
+      console.warn("No projectId found, skipping push token registration");
+    }
   }
 
   // Android-specific settings
