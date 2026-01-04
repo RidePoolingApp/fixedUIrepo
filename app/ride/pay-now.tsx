@@ -16,8 +16,8 @@ import {
   ThemedText,
   ThemedTextSecondary,
 } from "../components/Themed";
-import { useState } from "react";
-import { useApi, PaymentMethod } from "../services/api";
+import { useState, useEffect } from "react";
+import { useApi, PaymentMethod, RideStatus } from "../services/api";
 
 export default function PayNow() {
   const router = useRouter();
@@ -28,6 +28,21 @@ export default function PayNow() {
   const [promo, setPromo] = useState("");
   const [appliedPromo, setAppliedPromo] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [rideStatus, setRideStatus] = useState<RideStatus | null>(null);
+
+  // Fetch ride status to determine navigation after payment
+  useEffect(() => {
+    const fetchRideStatus = async () => {
+      if (!params.rideId) return;
+      try {
+        const ride = await api.getRide(params.rideId);
+        setRideStatus(ride.status);
+      } catch (error) {
+        console.error("Failed to fetch ride status:", error);
+      }
+    };
+    fetchRideStatus();
+  }, [params.rideId]);
 
   const baseFare = parseInt(params.fare || "749");
   const tax = Math.round(baseFare * 0.05);
@@ -56,21 +71,33 @@ export default function PayNow() {
         method: paymentMethod,
       });
 
-      if (paymentMethod === PaymentMethod.CASH) {
-        router.push({
-          pathname: "/ride/payment-sucess",
-          params: { rideId: params.rideId, paymentId: payment.id },
-        });
-      } else {
-        const transactionId = `TXN${Date.now()}`;
+      let transactionId: string | undefined;
+
+      if (paymentMethod !== PaymentMethod.CASH) {
+        // Mock payment verification for UPI/Card/Wallet
+        transactionId = `TXN${Date.now()}`;
         await api.verifyPayment({
           paymentId: payment.id,
           transactionId,
         });
-        
+      }
+
+      // If ride is completed, go directly to completed screen
+      if (rideStatus === RideStatus.COMPLETED) {
+        router.replace({
+          pathname: "/ride/competed",
+          params: { rideId: params.rideId },
+        });
+      } else {
+        // Otherwise go to payment success screen
         router.push({
           pathname: "/ride/payment-sucess",
-          params: { rideId: params.rideId, paymentId: payment.id },
+          params: { 
+            rideId: params.rideId, 
+            amount: String(total),
+            method: paymentMethod,
+            ...(transactionId && { transactionId }),
+          },
         });
       }
     } catch (error: any) {
