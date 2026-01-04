@@ -1,13 +1,14 @@
-// app/ride/pay-now.tsx
 import {
   View,
   TouchableOpacity,
   ScrollView,
   TextInput,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useThemeStyles } from "../context/themeStyles";
 import {
   ThemedScreen,
@@ -16,20 +17,68 @@ import {
   ThemedTextSecondary,
 } from "../components/Themed";
 import { useState } from "react";
+import { useApi, PaymentMethod } from "../services/api";
 
 export default function PayNow() {
   const router = useRouter();
+  const api = useApi();
+  const params = useLocalSearchParams<{ rideId?: string; method?: string; fare?: string }>();
   const { isDark } = useThemeStyles();
 
   const [promo, setPromo] = useState("");
   const [appliedPromo, setAppliedPromo] = useState(false);
+  const [processing, setProcessing] = useState(false);
 
-  const fare = 749;
-  const tax = 48;
+  const baseFare = parseInt(params.fare || "749");
+  const tax = Math.round(baseFare * 0.05);
   const toll = 30;
-  const total = fare + tax + toll - (appliedPromo ? 50 : 0);
+  const discount = appliedPromo ? 50 : 0;
+  const total = baseFare + tax + toll - discount;
 
-  const paymentMethod = "UPI";
+  const paymentMethod = params.method as PaymentMethod || PaymentMethod.UPI;
+  
+  const getMethodIcon = () => {
+    switch (paymentMethod) {
+      case PaymentMethod.UPI: return "logo-google";
+      case PaymentMethod.CARD: return "card-outline";
+      case PaymentMethod.CASH: return "cash-outline";
+      case PaymentMethod.WALLET: return "wallet-outline";
+      default: return "logo-google";
+    }
+  };
+
+  const handlePayment = async () => {
+    setProcessing(true);
+    try {
+      const payment = await api.initiatePayment({
+        rideId: params.rideId,
+        amount: total,
+        method: paymentMethod,
+      });
+
+      if (paymentMethod === PaymentMethod.CASH) {
+        router.push({
+          pathname: "/ride/payment-sucess",
+          params: { rideId: params.rideId, paymentId: payment.id },
+        });
+      } else {
+        const transactionId = `TXN${Date.now()}`;
+        await api.verifyPayment({
+          paymentId: payment.id,
+          transactionId,
+        });
+        
+        router.push({
+          pathname: "/ride/payment-sucess",
+          params: { rideId: params.rideId, paymentId: payment.id },
+        });
+      }
+    } catch (error: any) {
+      Alert.alert("Payment Failed", error.message || "Please try again");
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   return (
     <ThemedScreen>
@@ -59,13 +108,16 @@ export default function PayNow() {
         <ThemedView className="p-5 rounded-3xl shadow border mb-6">
           <View className="flex-row items-center justify-between">
             <View className="flex-row items-center">
-              <Ionicons name="logo-google" size={26} color="#FACC15" />
+              <Ionicons name={getMethodIcon() as any} size={26} color="#FACC15" />
               <ThemedText className="ml-3 text-lg">
                 {paymentMethod}
               </ThemedText>
             </View>
 
-            <TouchableOpacity onPress={() => router.push("/ride/payment")}>
+            <TouchableOpacity onPress={() => router.push({
+              pathname: "/ride/payment",
+              params: { rideId: params.rideId, fare: params.fare },
+            })}>
               <ThemedText className="text-yellow-500 font-semibold">
                 Change
               </ThemedText>
@@ -79,7 +131,7 @@ export default function PayNow() {
 
           <View className="flex-row justify-between mb-2">
             <ThemedTextSecondary>Ride Fare</ThemedTextSecondary>
-            <ThemedText>₹{fare}</ThemedText>
+            <ThemedText>₹{baseFare}</ThemedText>
           </View>
 
           <View className="flex-row justify-between mb-2">
@@ -95,7 +147,7 @@ export default function PayNow() {
           {appliedPromo && (
             <View className="flex-row justify-between mb-2">
               <ThemedTextSecondary>Promo Discount</ThemedTextSecondary>
-              <ThemedText className="text-green-500">-₹50</ThemedText>
+              <ThemedText className="text-green-500">-₹{discount}</ThemedText>
             </View>
           )}
 
@@ -140,11 +192,16 @@ export default function PayNow() {
 
         {/* PAY NOW BUTTON */}
         <TouchableOpacity
-          onPress={() => router.push("/ride/payment-sucess")}
-          className="bg-yellow-500 p-5 rounded-3xl items-center shadow"
+          onPress={handlePayment}
+          disabled={processing}
+          className={`p-5 rounded-3xl items-center shadow ${processing ? "bg-yellow-400" : "bg-yellow-500"}`}
           style={{ elevation: 4 }}
         >
-          <ThemedText className="text-white text-lg font-bold">Pay ₹{total}</ThemedText>
+          {processing ? (
+            <ActivityIndicator color="white" />
+          ) : (
+            <ThemedText className="text-white text-lg font-bold">Pay ₹{total}</ThemedText>
+          )}
         </TouchableOpacity>
 
       </ScrollView>
