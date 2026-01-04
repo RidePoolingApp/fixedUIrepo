@@ -17,7 +17,7 @@ export default function DriverEarnings() {
   const router = useRouter();
   const api = useApi();
 
-  const tabs = ["Today", "Week", "Month"];
+  const tabs = ["Today", "Week", "Month", "All"];
   const [active, setActive] = useState("Today");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -27,11 +27,14 @@ export default function DriverEarnings() {
   const graphAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  const getDateRange = (period: string) => {
+  const getDateRange = (period: string): { from?: string; to?: string } => {
     const now = new Date();
     let from: string;
     
     switch (period) {
+      case "All":
+        // Return empty to fetch all earnings without date filter
+        return {};
       case "Week":
         const weekAgo = new Date(now);
         weekAgo.setDate(weekAgo.getDate() - 7);
@@ -63,12 +66,12 @@ export default function DriverEarnings() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [api, active]);
+  }, [active]);
 
   useEffect(() => {
     setLoading(true);
     fetchEarnings();
-  }, [active, fetchEarnings]);
+  }, [active]);
 
   useEffect(() => {
     Animated.timing(graphAnim, {
