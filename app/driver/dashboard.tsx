@@ -7,6 +7,10 @@ import {
   StatusBar,
   ActivityIndicator,
   Alert,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -15,6 +19,10 @@ import { useEffect, useRef, useState, useContext, useCallback } from "react";
 import { ThemeContext } from "../context/ThemeContext";
 import { useApi, DriverProfile, Ride, DriverEarning } from "../services/api";
 import * as Location from "expo-location";
+import { io, Socket } from "socket.io-client";
+import * as Haptics from "expo-haptics";
+
+const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || "http://localhost:3000";
 
 export default function DriverDashboard() {
   const router = useRouter();
@@ -30,6 +38,14 @@ export default function DriverDashboard() {
   const [todayRides, setTodayRides] = useState(0);
   const [pendingJobs, setPendingJobs] = useState<Ride[]>([]);
   const locationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fare settings modal state
+  const [fareModalVisible, setFareModalVisible] = useState(false);
+  const [farePerKm, setFarePerKm] = useState("12");
+  const [baseFare, setBaseFare] = useState("30");
+  const [savingFare, setSavingFare] = useState(false);
 
   const pulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -51,35 +67,101 @@ export default function DriverDashboard() {
 
   const fetchDashboardData = useCallback(async () => {
     try {
-      const [profile, earningsData, jobs] = await Promise.all([
+      const today = new Date().toISOString().split('T')[0];
+      const [profile, earningsData, jobs, requests] = await Promise.all([
         api.getMe(),
-        api.getDriverEarnings(new Date().toISOString().split('T')[0]),
+        api.getDriverEarnings(today, today),
         api.getDriverJobs().catch(() => []),
+        api.getDriverRequests().catch(() => []),
       ]);
 
       if (profile.driverProfile) {
-        setDriverProfile(profile.driverProfile);
+        // Fetch full driver profile with current location if needed
+        const driverWithLocation = {
+          ...profile.driverProfile,
+          currentLocation: profile.driverProfile.currentLocation,
+        };
+        setDriverProfile(driverWithLocation);
         setOnline(profile.driverProfile.isOnline);
+        // Set fare values
+        setFarePerKm(String(profile.driverProfile.farePerKm || 12));
+        setBaseFare(String(profile.driverProfile.baseFare || 30));
       }
 
       setTodayEarnings(earningsData.total);
       setTodayRides(earningsData.earnings.length);
-      setPendingJobs(jobs);
+      // Combine jobs and direct requests, remove duplicates
+      const allJobs = [...jobs, ...requests];
+      const uniqueJobs = allJobs.filter((job, index, self) => 
+        index === self.findIndex(j => j.id === job.id)
+      );
+      setPendingJobs(uniqueJobs);
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, []);
 
   useEffect(() => {
     fetchDashboardData();
+    
+    // Set up polling for pending jobs every 5 seconds
+    pollIntervalRef.current = setInterval(() => {
+      fetchDashboardData();
+    }, 5000);
+    
     return () => {
       if (locationIntervalRef.current) {
         clearInterval(locationIntervalRef.current);
       }
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
     };
   }, [fetchDashboardData]);
+
+  // Set up socket connection when driver is online
+  useEffect(() => {
+    if (!online || !driverProfile) return;
+
+    socketRef.current = io(SOCKET_URL, {
+      transports: ["websocket"],
+    });
+
+    socketRef.current.on("connect", () => {
+      console.log("Dashboard socket connected");
+      socketRef.current?.emit("join:driver", driverProfile.id);
+    });
+
+    socketRef.current.on("ride:request", (data: { ride: Ride; message: string }) => {
+      console.log("New ride request received:", data);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      fetchDashboardData();
+      Alert.alert(
+        "New Ride Request!",
+        `${data.ride.pickup?.locationName || 'Pickup'} → ${data.ride.drop?.locationName || 'Drop'}`,
+        [
+          { text: "View", onPress: () => router.push("/driver/incoming-request") },
+          { text: "Later", style: "cancel" }
+        ]
+      );
+    });
+
+    socketRef.current.on("ride:new", (ride: Ride) => {
+      console.log("New ride broadcast:", ride);
+      fetchDashboardData();
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, [online, driverProfile?.id]);
 
   const startLocationUpdates = async () => {
     try {
@@ -141,6 +223,35 @@ export default function DriverDashboard() {
       Alert.alert("Error", "Failed to update status. Please try again.");
     } finally {
       setToggling(false);
+    }
+  };
+
+  const saveFareSettings = async () => {
+    const farePerKmNum = parseFloat(farePerKm);
+    const baseFareNum = parseFloat(baseFare);
+
+    if (isNaN(farePerKmNum) || farePerKmNum < 5 || farePerKmNum > 50) {
+      Alert.alert("Invalid Fare", "Fare per km must be between ₹5 and ₹50");
+      return;
+    }
+
+    if (isNaN(baseFareNum) || baseFareNum < 10 || baseFareNum > 100) {
+      Alert.alert("Invalid Base Fare", "Base fare must be between ₹10 and ₹100");
+      return;
+    }
+
+    setSavingFare(true);
+    try {
+      const updatedProfile = await api.updateDriverFareSettings(farePerKmNum, baseFareNum);
+      setDriverProfile(updatedProfile);
+      setFareModalVisible(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Success", "Fare settings updated successfully!");
+    } catch (error: any) {
+      console.error("Error saving fare settings:", error);
+      Alert.alert("Error", error.message || "Failed to update fare settings");
+    } finally {
+      setSavingFare(false);
     }
   };
 
@@ -231,64 +342,111 @@ export default function DriverDashboard() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 200 }}
       >
-        {/* ACTIVE RIDE CARD */}
-        <View
-          className={`p-5 rounded-3xl shadow ${
-            isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
-          }`}
-          style={{ elevation: 4 }}
-        >
-          <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center">
-              <Ionicons name="navigate-outline" size={26} color="#d97706" />
-              <Text className={`ml-2 font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>
-                Next Trip
-              </Text>
-            </View>
-            <View className="px-3 py-1 rounded-full bg-gray-100 border border-gray-300">
-              <Text className="text-gray-700 text-xs font-semibold">Trip #2481</Text>
-            </View>
-          </View>
-
-          <Text className={`text-xl font-bold mt-3 ${isDark ? "text-white" : "text-gray-900"}`}>
-            HSR Layout → MG Road
-          </Text>
-          <Text className={`${isDark ? "text-gray-300" : "text-gray-600"}`}>ETA 8–12 min • 3.2 km</Text>
-
-          <View className="flex-row mt-3">
-            <View className="px-3 py-1 mr-2 rounded-full bg-yellow-100 border border-yellow-300">
-              <Text className="text-yellow-700 text-xs font-semibold">UPI</Text>
-            </View>
-            <View className="px-3 py-1 mr-2 rounded-full bg-gray-100 border border-gray-300">
-              <Text className="text-gray-700 text-xs font-semibold">2 Seats</Text>
-            </View>
-            <View className="px-3 py-1 rounded-full bg-emerald-100 border border-emerald-300">
-              <Text className="text-emerald-700 text-xs font-semibold">High Rating</Text>
-            </View>
-          </View>
-
-          <View className="flex-row justify-between mt-4">
-            <View>
-              <Text className={`${isDark ? "text-gray-300" : "text-gray-500"}`}>Earnings</Text>
-              <Text className={`text-lg font-bold ${isDark ? "text-white" : "text-gray-800"}`}>₹89</Text>
-            </View>
-            <View>
-              <Text className={`${isDark ? "text-gray-300" : "text-gray-500"}`}>Distance</Text>
-              <Text className={`text-lg font-bold ${isDark ? "text-white" : "text-gray-800"}`}>3.2 km</Text>
-            </View>
-            <View>
-              <Text className={`${isDark ? "text-gray-300" : "text-gray-500"}`}>ETA</Text>
-              <Text className={`text-lg font-bold ${isDark ? "text-white" : "text-gray-800"}`}>8 min</Text>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            onPress={() => router.push("/driver/incoming-request")}
-            className="mt-5 bg-yellow-500 p-4 rounded-2xl items-center"
+        {/* ACTIVE RIDE / PENDING REQUEST CARD */}
+        {pendingJobs.length > 0 ? (
+          <View
+            className={`p-5 rounded-3xl shadow ${
+              isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+            }`}
+            style={{ elevation: 4 }}
           >
-            <Text className="text-white font-bold">View Requests</Text>
-          </TouchableOpacity>
-        </View>
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center">
+                <View className="w-3 h-3 rounded-full bg-green-500 mr-2 animate-pulse" />
+                <Ionicons name="navigate-outline" size={26} color="#d97706" />
+                <Text className={`ml-2 font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>
+                  {pendingJobs.length === 1 ? "New Request" : `${pendingJobs.length} Pending Requests`}
+                </Text>
+              </View>
+              <View className="px-3 py-1 rounded-full bg-yellow-100 border border-yellow-300">
+                <Text className="text-yellow-700 text-xs font-semibold">PENDING</Text>
+              </View>
+            </View>
+
+            <Text className={`text-xl font-bold mt-3 ${isDark ? "text-white" : "text-gray-900"}`}>
+              {pendingJobs[0].pickup?.locationName || "Pickup"} → {pendingJobs[0].drop?.locationName || "Drop"}
+            </Text>
+            <Text className={`${isDark ? "text-gray-300" : "text-gray-600"}`}>
+              {pendingJobs[0].pickup?.address || ""} • {pendingJobs[0].distance ? `${pendingJobs[0].distance} km` : "Calculating..."}
+            </Text>
+
+            <View className="flex-row mt-3">
+              <View className="px-3 py-1 mr-2 rounded-full bg-yellow-100 border border-yellow-300">
+                <Text className="text-yellow-700 text-xs font-semibold">CASH/UPI</Text>
+              </View>
+              <View className="px-3 py-1 mr-2 rounded-full bg-gray-100 border border-gray-300">
+                <Text className="text-gray-700 text-xs font-semibold">{pendingJobs[0].type || "STANDARD"}</Text>
+              </View>
+              {pendingJobs[0].rider && (
+                <View className="px-3 py-1 rounded-full bg-blue-100 border border-blue-300">
+                  <Text className="text-blue-700 text-xs font-semibold">
+                    {pendingJobs[0].rider.firstName || "Rider"}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View className="flex-row justify-between mt-4">
+              <View>
+                <Text className={`${isDark ? "text-gray-300" : "text-gray-500"}`}>Est. Fare</Text>
+                <Text className={`text-lg font-bold ${isDark ? "text-white" : "text-gray-800"}`}>
+                  {pendingJobs[0].fare ? `₹${pendingJobs[0].fare}` : "View details"}
+                </Text>
+              </View>
+              <View>
+                <Text className={`${isDark ? "text-gray-300" : "text-gray-500"}`}>Distance</Text>
+                <Text className={`text-lg font-bold ${isDark ? "text-white" : "text-gray-800"}`}>
+                  {pendingJobs[0].distance ? `${pendingJobs[0].distance} km` : "View details"}
+                </Text>
+              </View>
+              <View>
+                <Text className={`${isDark ? "text-gray-300" : "text-gray-500"}`}>Requests</Text>
+                <Text className={`text-lg font-bold ${isDark ? "text-white" : "text-gray-800"}`}>
+                  {pendingJobs.length}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => router.push("/driver/incoming-request")}
+              className="mt-5 bg-yellow-500 p-4 rounded-2xl items-center"
+            >
+              <Text className="text-white font-bold">View & Accept Requests</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View
+            className={`p-5 rounded-3xl shadow ${
+              isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+            }`}
+            style={{ elevation: 4 }}
+          >
+            <View className="flex-row items-center justify-center py-6">
+              <Ionicons name="car-outline" size={48} color={isDark ? "#6b7280" : "#9ca3af"} />
+            </View>
+            <Text className={`text-center text-lg font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>
+              No Pending Requests
+            </Text>
+            <Text className={`text-center mt-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+              {online 
+                ? "Stay online to receive ride requests from passengers nearby"
+                : "Go online to start receiving ride requests"}
+            </Text>
+            {!online && (
+              <TouchableOpacity
+                onPress={toggleOnlineStatus}
+                disabled={toggling}
+                className="mt-4 bg-green-500 p-4 rounded-2xl items-center"
+              >
+                {toggling ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-white font-bold">Go Online Now</Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {/* EARNINGS & STATS */}
         <View className="flex-row justify-between mt-6">
@@ -358,6 +516,46 @@ export default function DriverDashboard() {
           <Text className={`font-semibold text-lg mb-4 ${isDark ? "text-white" : "text-gray-900"}`}>
             Quick Actions
           </Text>
+
+          {/* Select Location */}
+          <TouchableOpacity
+            onPress={() => router.push("/driver/select-location")}
+            className={`p-5 rounded-3xl shadow mb-4 flex-row items-center ${
+              isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+            }`}
+            style={{ elevation: 4 }}
+          >
+            <Ionicons name="location-outline" size={28} color="#10b981" />
+            <View className="flex-1 ml-3">
+              <Text className={`text-lg font-semibold ${isDark ? "text-white" : "text-gray-800"}`}>
+                Set Current Location
+              </Text>
+              <Text className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                {driverProfile?.currentLocation?.locationName || "Select a location to be visible to riders"}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={isDark ? "#9ca3af" : "#6b7280"} />
+          </TouchableOpacity>
+
+          {/* Set Fare */}
+          <TouchableOpacity
+            onPress={() => setFareModalVisible(true)}
+            className={`p-5 rounded-3xl shadow mb-4 flex-row items-center ${
+              isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+            }`}
+            style={{ elevation: 4 }}
+          >
+            <Ionicons name="pricetag-outline" size={28} color="#10b981" />
+            <View className="flex-1 ml-3">
+              <Text className={`text-lg font-semibold ${isDark ? "text-white" : "text-gray-800"}`}>
+                Set Your Fare
+              </Text>
+              <Text className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                ₹{driverProfile?.baseFare || 30} base + ₹{driverProfile?.farePerKm || 12}/km
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={isDark ? "#9ca3af" : "#6b7280"} />
+          </TouchableOpacity>
 
           {/* Earnings */}
           <TouchableOpacity
@@ -430,6 +628,111 @@ export default function DriverDashboard() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Fare Settings Modal */}
+      <Modal visible={fareModalVisible} animationType="slide" transparent>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"} 
+          style={{ flex: 1 }}
+        >
+          <View className="flex-1 justify-end">
+            <View 
+              className={`rounded-t-3xl p-6 ${isDark ? "bg-gray-800" : "bg-white"}`}
+              style={{ elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.25, shadowRadius: 10 }}
+            >
+              <View className="flex-row justify-between items-center mb-6">
+                <Text className={`text-2xl font-bold ${isDark ? "text-white" : "text-gray-900"}`}>
+                  Set Your Fare
+                </Text>
+                <TouchableOpacity onPress={() => setFareModalVisible(false)}>
+                  <Ionicons name="close" size={28} color={isDark ? "#9ca3af" : "#6b7280"} />
+                </TouchableOpacity>
+              </View>
+
+              <Text className={`mb-2 font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                Base Fare (₹)
+              </Text>
+              <Text className={`text-xs mb-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                Fixed charge for first kilometer (₹10 - ₹100)
+              </Text>
+              <View className={`flex-row items-center mb-4 border rounded-2xl px-4 ${isDark ? "border-gray-600 bg-gray-700" : "border-gray-300 bg-gray-50"}`}>
+                <Text className={`text-xl ${isDark ? "text-gray-300" : "text-gray-600"}`}>₹</Text>
+                <TextInput
+                  value={baseFare}
+                  onChangeText={setBaseFare}
+                  keyboardType="numeric"
+                  placeholder="30"
+                  placeholderTextColor={isDark ? "#6b7280" : "#9ca3af"}
+                  className={`flex-1 p-4 text-xl ${isDark ? "text-white" : "text-gray-900"}`}
+                />
+              </View>
+
+              <Text className={`mb-2 font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                Fare Per Kilometer (₹)
+              </Text>
+              <Text className={`text-xs mb-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                Charge per km after first km (₹5 - ₹50)
+              </Text>
+              <View className={`flex-row items-center mb-4 border rounded-2xl px-4 ${isDark ? "border-gray-600 bg-gray-700" : "border-gray-300 bg-gray-50"}`}>
+                <Text className={`text-xl ${isDark ? "text-gray-300" : "text-gray-600"}`}>₹</Text>
+                <TextInput
+                  value={farePerKm}
+                  onChangeText={setFarePerKm}
+                  keyboardType="numeric"
+                  placeholder="12"
+                  placeholderTextColor={isDark ? "#6b7280" : "#9ca3af"}
+                  className={`flex-1 p-4 text-xl ${isDark ? "text-white" : "text-gray-900"}`}
+                />
+                <Text className={`text-lg ${isDark ? "text-gray-400" : "text-gray-500"}`}>/km</Text>
+              </View>
+
+              {/* Fare Preview */}
+              <View className={`p-4 rounded-2xl mb-6 ${isDark ? "bg-gray-700" : "bg-yellow-50"}`}>
+                <Text className={`font-semibold mb-2 ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                  Fare Preview
+                </Text>
+                <View className="flex-row justify-between">
+                  <Text className={`${isDark ? "text-gray-400" : "text-gray-600"}`}>5 km ride:</Text>
+                  <Text className={`font-bold ${isDark ? "text-white" : "text-gray-900"}`}>
+                    ₹{(parseFloat(baseFare || "0") + parseFloat(farePerKm || "0") * 4).toFixed(0)}
+                  </Text>
+                </View>
+                <View className="flex-row justify-between mt-1">
+                  <Text className={`${isDark ? "text-gray-400" : "text-gray-600"}`}>10 km ride:</Text>
+                  <Text className={`font-bold ${isDark ? "text-white" : "text-gray-900"}`}>
+                    ₹{(parseFloat(baseFare || "0") + parseFloat(farePerKm || "0") * 9).toFixed(0)}
+                  </Text>
+                </View>
+                <View className="flex-row justify-between mt-1">
+                  <Text className={`${isDark ? "text-gray-400" : "text-gray-600"}`}>20 km ride:</Text>
+                  <Text className={`font-bold ${isDark ? "text-white" : "text-gray-900"}`}>
+                    ₹{(parseFloat(baseFare || "0") + parseFloat(farePerKm || "0") * 19).toFixed(0)}
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={saveFareSettings}
+                disabled={savingFare}
+                className="bg-yellow-500 p-4 rounded-2xl items-center"
+              >
+                {savingFare ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text className="text-white text-lg font-bold">Save Fare Settings</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setFareModalVisible(false)}
+                className={`p-4 rounded-2xl items-center mt-3 ${isDark ? "bg-gray-700" : "bg-gray-100"}`}
+              >
+                <Text className={`font-semibold ${isDark ? "text-gray-300" : "text-gray-600"}`}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
