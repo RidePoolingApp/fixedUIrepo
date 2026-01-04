@@ -28,13 +28,13 @@ export default function DriverJobs() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [api]);
+  }, []);
 
   useEffect(() => {
     fetchJobs();
     const interval = setInterval(fetchJobs, 30000);
     return () => clearInterval(interval);
-  }, [fetchJobs]);
+  }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
