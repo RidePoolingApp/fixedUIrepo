@@ -4,23 +4,36 @@ import {
   TouchableOpacity,
   Animated,
   Image,
+  ActivityIndicator,
+  Alert,
+  Linking,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "expo-router";
+import { useEffect, useRef, useState, useCallback, useContext } from "react";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { useApi, Ride, RideStatus } from "../services/api";
+import { ThemeContext } from "../context/ThemeContext";
 
 export default function DriverRideStarted() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ rideId?: string }>();
+  const rideId = params.rideId;
+  const api = useApi();
+  const { theme } = useContext(ThemeContext);
+  const isDark = theme === "dark";
 
-  // Live ride states (mock)
+  // Ride data
+  const [ride, setRide] = useState<Ride | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Live ride states
   const [time, setTime] = useState(0);
-  const [distanceLeft, setDistanceLeft] = useState(4.8);
-  const [speed, setSpeed] = useState(32);
+  const [completing, setCompleting] = useState(false);
 
   // Ride phase: enroute -> arrived -> onTrip
-  const [phase, setPhase] = useState<'enroute' | 'arrived' | 'onTrip'>('enroute');
+  const [phase, setPhase] = useState<"enroute" | "arrived" | "onTrip">("onTrip");
 
   // Waiting timer
   const [waiting, setWaiting] = useState(false);
@@ -29,6 +42,42 @@ export default function DriverRideStarted() {
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
+  // Fetch ride data
+  const fetchRide = useCallback(async () => {
+    if (!rideId) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const rideData = await api.getRide(rideId);
+      setRide(rideData);
+
+      // Check if ride is already completed or cancelled
+      if (rideData.status === RideStatus.COMPLETED) {
+        router.replace({
+          pathname: "/driver/ride-completed",
+          params: { rideId },
+        });
+      } else if (rideData.status === RideStatus.CANCELLED) {
+        Alert.alert("Ride Cancelled", "This ride has been cancelled.");
+        router.replace("/driver/dashboard");
+      }
+    } catch (error) {
+      console.error("Failed to fetch ride:", error);
+      Alert.alert("Error", "Failed to load ride details");
+    } finally {
+      setLoading(false);
+    }
+  }, [rideId]);
+
+  useEffect(() => {
+    fetchRide();
+    // Poll for updates every 10 seconds
+    const pollInterval = setInterval(fetchRide, 10000);
+    return () => clearInterval(pollInterval);
+  }, [fetchRide]);
+
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: 1,
@@ -36,11 +85,9 @@ export default function DriverRideStarted() {
       useNativeDriver: true,
     }).start();
 
-    // Mock timer update every second
+    // Timer update every second
     const interval = setInterval(() => {
       setTime((t) => t + 1);
-      setSpeed(30 + Math.random() * 10);
-      setDistanceLeft((d) => (d - 0.05 > 0 ? d - 0.05 : 0));
     }, 1000);
 
     return () => clearInterval(interval);
@@ -53,24 +100,48 @@ export default function DriverRideStarted() {
     return () => clearInterval(timer);
   }, [waiting]);
 
-  const endRide = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    router.replace("/driver/ride-completed");
-  };
+  const endRide = async () => {
+    if (!rideId || !ride) return;
 
-  const markArrived = () => {
-    Haptics.selectionAsync();
-    setPhase('arrived');
-  };
-
-  const startTrip = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setPhase('onTrip');
+    Alert.alert("End Ride", "Are you sure you want to complete this ride?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "End Ride",
+        style: "destructive",
+        onPress: async () => {
+          setCompleting(true);
+          try {
+            await api.completeRide(rideId, {
+              distance: ride.distance,
+              fare: ride.fare,
+            });
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            router.replace({
+              pathname: "/driver/ride-completed",
+              params: { rideId },
+            });
+          } catch (error: any) {
+            Alert.alert("Error", error.message || "Failed to complete ride");
+          } finally {
+            setCompleting(false);
+          }
+        },
+      },
+    ]);
   };
 
   const toggleWaiting = () => {
     setWaiting((w) => !w);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  };
+
+  const callRider = () => {
+    const riderPhone = ride?.rider?.phone;
+    if (riderPhone) {
+      Linking.openURL(`tel:${riderPhone}`);
+    } else {
+      Alert.alert("Not Available", "Rider's phone number is not available");
+    }
   };
 
   const formatTime = (sec: number) => {
@@ -79,50 +150,129 @@ export default function DriverRideStarted() {
     return `${m}m ${s}s`;
   };
 
-  const statusTitle =
-    phase === 'enroute' ? 'Heading to Pickup' : phase === 'arrived' ? 'Arrived at Pickup' : 'Ride in Progress';
-  const statusSubtitle =
-    phase === 'enroute' ? 'Navigating to pickup point' : phase === 'arrived' ? 'Waiting to start the trip' : 'Navigating to destination';
+  // Rider info
+  const riderName = ride?.rider
+    ? `${ride.rider.firstName || ""} ${ride.rider.lastName || ""}`.trim() ||
+      "Passenger"
+    : "Passenger";
+  const riderRating = 4.8; // Default rating
+
+  // Location info
+  const pickupLabel =
+    ride?.pickup?.locationName || ride?.pickup?.address || "Pickup";
+  const dropLabel = ride?.drop?.locationName || ride?.drop?.address || "Drop";
+
+  if (loading) {
+    return (
+      <View
+        className={`flex-1 items-center justify-center ${isDark ? "bg-gray-900" : "bg-gray-100"}`}
+      >
+        <ActivityIndicator size="large" color="#FACC15" />
+        <Text className={`mt-4 ${isDark ? "text-gray-300" : "text-gray-600"}`}>
+          Loading ride details...
+        </Text>
+      </View>
+    );
+  }
+
+  if (!ride) {
+    return (
+      <View
+        className={`flex-1 items-center justify-center px-6 ${isDark ? "bg-gray-900" : "bg-gray-100"}`}
+      >
+        <Ionicons
+          name="car-outline"
+          size={64}
+          color={isDark ? "#6b7280" : "#999"}
+        />
+        <Text
+          className={`mt-4 text-lg text-center ${isDark ? "text-white" : "text-gray-900"}`}
+        >
+          Ride not found
+        </Text>
+        <TouchableOpacity
+          onPress={() => router.replace("/driver/dashboard")}
+          className="mt-6 bg-yellow-500 px-6 py-3 rounded-2xl"
+        >
+          <Text className="text-white font-semibold">Go to Dashboard</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
-    <View className="flex-1 bg-gray-100">
+    <View className={`flex-1 ${isDark ? "bg-gray-900" : "bg-gray-100"}`}>
       {/* PREMIUM NAV HEADER */}
       <View className="absolute top-0 left-0 right-0">
         <Svg height="230" width="100%">
-          <Path d="M0 0 H400 V130 Q200 230 0 130 Z" fill="#FACC15" />
-          <Path d="M0 30 H400 V150 Q200 260 0 150 Z" fill="#FDE047" opacity={0.35} />
+          <Path
+            d="M0 0 H400 V130 Q200 230 0 130 Z"
+            fill={isDark ? "#374151" : "#FACC15"}
+          />
+          <Path
+            d="M0 30 H400 V150 Q200 260 0 150 Z"
+            fill={isDark ? "#4B5563" : "#FDE047"}
+            opacity={0.35}
+          />
         </Svg>
       </View>
 
       {/* BACK BUTTON */}
       <TouchableOpacity
         onPress={() => router.back()}
-        className="absolute top-14 left-6 bg-white p-3 rounded-full shadow"
+        className={`absolute top-14 left-6 p-3 rounded-full shadow ${isDark ? "bg-gray-800" : "bg-white"}`}
         style={{ elevation: 6 }}
       >
-        <Ionicons name="arrow-back" size={24} color="#333" />
+        <Ionicons name="arrow-back" size={24} color={isDark ? "#fff" : "#333"} />
+      </TouchableOpacity>
+
+      {/* CALL BUTTON */}
+      <TouchableOpacity
+        onPress={callRider}
+        className="absolute top-14 right-6 p-3 rounded-full shadow bg-green-500"
+        style={{ elevation: 6 }}
+      >
+        <Ionicons name="call" size={24} color="#fff" />
       </TouchableOpacity>
 
       {/* TITLE */}
       <View className="mt-28 px-6">
-        <Text className="text-3xl font-extrabold text-gray-900">{statusTitle}</Text>
-        <Text className="text-gray-700 mt-1">{statusSubtitle}</Text>
+        <Text
+          className={`text-3xl font-extrabold ${isDark ? "text-white" : "text-gray-900"}`}
+        >
+          Ride in Progress
+        </Text>
+        <Text className={`mt-1 ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+          Navigate to destination safely
+        </Text>
 
         {/* Info chips */}
         <View className="flex-row mt-3">
           <View className="px-3 py-1 mr-2 rounded-full bg-yellow-100 border border-yellow-300">
-            <Text className="text-yellow-700 text-xs font-semibold">UPI</Text>
+            <Text className="text-yellow-700 text-xs font-semibold">
+              {ride.payment?.method || "CASH/UPI"}
+            </Text>
           </View>
-          <View className="px-3 py-1 mr-2 rounded-full bg-gray-100 border border-gray-300">
-            <Text className="text-gray-700 text-xs font-semibold">2 Seats</Text>
+          <View
+            className={`px-3 py-1 mr-2 rounded-full border ${isDark ? "bg-gray-800 border-gray-700" : "bg-gray-100 border-gray-300"}`}
+          >
+            <Text
+              className={`text-xs font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}
+            >
+              {ride.type}
+            </Text>
           </View>
           {waiting ? (
             <View className="px-3 py-1 rounded-full bg-red-100 border border-red-300">
-              <Text className="text-red-700 text-xs font-semibold">Waiting {formatTime(waitingSec)}</Text>
+              <Text className="text-red-700 text-xs font-semibold">
+                Waiting {formatTime(waitingSec)}
+              </Text>
             </View>
           ) : (
             <View className="px-3 py-1 rounded-full bg-emerald-100 border border-emerald-300">
-              <Text className="text-emerald-700 text-xs font-semibold">On Time</Text>
+              <Text className="text-emerald-700 text-xs font-semibold">
+                On Time
+              </Text>
             </View>
           )}
         </View>
@@ -141,31 +291,67 @@ export default function DriverRideStarted() {
             },
           ],
         }}
-        className="mx-6 mt-6 bg-white rounded-3xl shadow p-6 border border-gray-200"
+        className={`mx-6 mt-6 rounded-3xl shadow p-6 border ${isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"}`}
       >
         {/* MAP Placeholder */}
-        <View className="bg-gray-200 h-52 rounded-2xl items-center justify-center">
-          <Ionicons name="navigate-outline" size={70} color="#999" />
-          <Text className="mt-2 text-gray-600">Navigation in progress...</Text>
+        <View
+          className={`h-40 rounded-2xl items-center justify-center ${isDark ? "bg-gray-700" : "bg-gray-200"}`}
+        >
+          <Ionicons
+            name="navigate-outline"
+            size={70}
+            color={isDark ? "#6b7280" : "#999"}
+          />
+          <Text
+            className={`mt-2 ${isDark ? "text-gray-400" : "text-gray-600"}`}
+          >
+            Navigation in progress...
+          </Text>
         </View>
 
         {/* Rider row */}
         <View className="mt-5 flex-row items-center justify-between">
           <View className="flex-row items-center">
-            <Image
-              source={{ uri: "https://i.pravatar.cc/80?img=12" }}
-              className="w-10 h-10 rounded-full"
-            />
+            {ride.rider?.profileImage ? (
+              <Image
+                source={{ uri: ride.rider.profileImage }}
+                className="w-10 h-10 rounded-full"
+              />
+            ) : (
+              <View
+                className={`w-10 h-10 rounded-full items-center justify-center ${isDark ? "bg-gray-700" : "bg-gray-200"}`}
+              >
+                <Ionicons
+                  name="person"
+                  size={20}
+                  color={isDark ? "#9ca3af" : "#6b7280"}
+                />
+              </View>
+            )}
             <View className="ml-3">
-              <Text className="text-gray-900 font-semibold">Aarav Sharma</Text>
+              <Text
+                className={`font-semibold ${isDark ? "text-white" : "text-gray-900"}`}
+              >
+                {riderName}
+              </Text>
               <View className="flex-row items-center">
                 <Ionicons name="star" size={14} color="#FACC15" />
-                <Text className="ml-1 text-gray-600 text-xs">4.8</Text>
+                <Text
+                  className={`ml-1 text-xs ${isDark ? "text-gray-400" : "text-gray-600"}`}
+                >
+                  {riderRating}
+                </Text>
               </View>
             </View>
           </View>
-          <View className="px-3 py-1 rounded-full bg-gray-100 border border-gray-300">
-            <Text className="text-gray-700 text-xs font-semibold">Trip #{""}2481</Text>
+          <View
+            className={`px-3 py-1 rounded-full border ${isDark ? "bg-gray-700 border-gray-600" : "bg-gray-100 border-gray-300"}`}
+          >
+            <Text
+              className={`text-xs font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}
+            >
+              Trip #{ride.id.slice(0, 6)}
+            </Text>
           </View>
         </View>
 
@@ -174,98 +360,133 @@ export default function DriverRideStarted() {
           {/* TIME */}
           <View className="items-center">
             <Ionicons name="time-outline" size={26} color="#FACC15" />
-            <Text className="text-gray-900 font-bold mt-1">{formatTime(time)}</Text>
-            <Text className="text-gray-500 text-xs">Time</Text>
+            <Text
+              className={`font-bold mt-1 ${isDark ? "text-white" : "text-gray-900"}`}
+            >
+              {formatTime(time)}
+            </Text>
+            <Text
+              className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}
+            >
+              Time
+            </Text>
           </View>
 
           {/* DISTANCE */}
           <View className="items-center">
-            <MaterialCommunityIcons name="map-marker-distance" size={28} color="#FACC15" />
-            <Text className="text-gray-900 font-bold mt-1">
-              {distanceLeft.toFixed(1)} km
+            <MaterialCommunityIcons
+              name="map-marker-distance"
+              size={28}
+              color="#FACC15"
+            />
+            <Text
+              className={`font-bold mt-1 ${isDark ? "text-white" : "text-gray-900"}`}
+            >
+              {ride.distance ? `${ride.distance} km` : "N/A"}
             </Text>
-            <Text className="text-gray-500 text-xs">Remaining</Text>
+            <Text
+              className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}
+            >
+              Distance
+            </Text>
           </View>
 
-          {/* SPEED */}
+          {/* FARE */}
           <View className="items-center">
-            <MaterialCommunityIcons name="speedometer" size={28} color="#FACC15" />
-            <Text className="text-gray-900 font-bold mt-1">
-              {Math.floor(speed)} km/h
+            <Ionicons name="cash-outline" size={26} color="#FACC15" />
+            <Text className="font-bold mt-1 text-yellow-600">
+              {ride.fare ? `₹${ride.fare}` : "N/A"}
             </Text>
-            <Text className="text-gray-500 text-xs">Speed</Text>
+            <Text
+              className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}
+            >
+              Fare
+            </Text>
           </View>
         </View>
 
         {/* ROUTE CARD */}
-        <View className="mt-6 border-t border-gray-200 pt-6">
-          <Text className="font-semibold text-gray-900 text-lg">
-            HSR Layout → MG Road
-          </Text>
-          <Text className="text-gray-600 mt-1">Estimated arrival in 8–12 min</Text>
+        <View
+          className={`mt-6 border-t pt-4 ${isDark ? "border-gray-700" : "border-gray-200"}`}
+        >
+          <View className="flex-row items-start mb-2">
+            <View className="w-3 h-3 rounded-full bg-green-500 mt-1" />
+            <View className="ml-3 flex-1">
+              <Text
+                className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}
+              >
+                PICKUP
+              </Text>
+              <Text
+                className={`font-semibold ${isDark ? "text-white" : "text-gray-900"}`}
+              >
+                {pickupLabel}
+              </Text>
+            </View>
+          </View>
+          <View className="flex-row items-start">
+            <View className="w-3 h-3 rounded-full bg-red-500 mt-1" />
+            <View className="ml-3 flex-1">
+              <Text
+                className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}
+              >
+                DROP
+              </Text>
+              <Text
+                className={`font-semibold ${isDark ? "text-white" : "text-gray-900"}`}
+              >
+                {dropLabel}
+              </Text>
+            </View>
+          </View>
         </View>
       </Animated.View>
 
       {/* BOTTOM ACTION BAR */}
       <View className="absolute bottom-10 left-0 right-0 px-6">
-        {phase === 'enroute' && (
-          <>
-            <TouchableOpacity
-              onPress={markArrived}
-              className="bg-yellow-500 p-5 rounded-3xl items-center shadow-lg"
-              style={{ elevation: 10 }}
+        <View className="flex-row">
+          <TouchableOpacity
+            onPress={endRide}
+            disabled={completing}
+            className="flex-[1.4] bg-red-500 p-5 rounded-3xl items-center shadow-lg"
+            style={{ elevation: 10 }}
+          >
+            {completing ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text className="text-white font-bold text-xl">End Ride</Text>
+            )}
+          </TouchableOpacity>
+          <View className="w-3" />
+          <TouchableOpacity
+            onPress={toggleWaiting}
+            className={`flex-1 p-5 rounded-3xl items-center border shadow ${
+              waiting
+                ? "bg-red-50 border-red-300"
+                : isDark
+                  ? "bg-gray-800 border-gray-700"
+                  : "bg-white border-gray-300"
+            }`}
+            style={{ elevation: 6 }}
+          >
+            <Text
+              className={`text-lg font-semibold ${
+                waiting
+                  ? "text-red-600"
+                  : isDark
+                    ? "text-gray-300"
+                    : "text-gray-700"
+              }`}
             >
-              <Text className="text-white font-bold text-xl">Mark Arrived</Text>
-            </TouchableOpacity>
-          </>
-        )}
-
-        {phase === 'arrived' && (
-          <View className="flex-row">
-            <TouchableOpacity
-              onPress={startTrip}
-              className="flex-1 bg-yellow-500 p-5 rounded-3xl items-center shadow-lg"
-              style={{ elevation: 10 }}
-            >
-              <Text className="text-white font-bold text-xl">Start Trip</Text>
-            </TouchableOpacity>
-            <View className="w-3" />
-            <TouchableOpacity
-              onPress={toggleWaiting}
-              className={`flex-1 p-5 rounded-3xl items-center border shadow ${waiting ? 'bg-red-50 border-red-300' : 'bg-white border-gray-300'}`}
-              style={{ elevation: 6 }}
-            >
-              <Text className={`text-lg font-semibold ${waiting ? 'text-red-600' : 'text-gray-700'}`}>
-                {waiting ? `Waiting ${formatTime(waitingSec)}` : 'Start Waiting'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {phase === 'onTrip' && (
-          <View>
-            <View className="flex-row">
-              <TouchableOpacity
-                onPress={endRide}
-                className="flex-[1.4] bg-red-500 p-5 rounded-3xl items-center shadow-lg"
-                style={{ elevation: 10 }}
-              >
-                <Text className="text-white font-bold text-xl">End Ride</Text>
-              </TouchableOpacity>
-              <View className="w-3" />
-              <TouchableOpacity
-                onPress={toggleWaiting}
-                className={`flex-1 p-5 rounded-3xl items-center border shadow ${waiting ? 'bg-red-50 border-red-300' : 'bg-white border-gray-300'}`}
-                style={{ elevation: 6 }}
-              >
-                <Text className={`text-lg font-semibold ${waiting ? 'text-red-600' : 'text-gray-700'}`}>
-                  {waiting ? `Waiting ${formatTime(waitingSec)}` : 'Start Waiting'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <Text className="text-center text-gray-500 mt-2 text-xs">Waiting time is added to fare as per policy</Text>
-          </View>
-        )}
+              {waiting ? `${formatTime(waitingSec)}` : "Wait"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <Text
+          className={`text-center mt-2 text-xs ${isDark ? "text-gray-500" : "text-gray-500"}`}
+        >
+          Waiting time is added to fare as per policy
+        </Text>
       </View>
     </View>
   );
