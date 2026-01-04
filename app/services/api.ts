@@ -129,8 +129,12 @@ export interface DriverProfile {
   isOnline: boolean;
   currentLat?: number;
   currentLng?: number;
+  currentLocationId?: string;
+  currentLocation?: Location;
   rating: number;
   totalTrips: number;
+  farePerKm: number;
+  baseFare: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -276,33 +280,87 @@ class ApiService {
     this.getToken = getter;
   }
 
+  private async getAuthToken(): Promise<string | null> {
+    if (!this.getToken) {
+      console.warn("Token getter not set. Call useApi() first.");
+      return null;
+    }
+
+    // Always get a fresh token from Clerk - don't cache
+    // Clerk handles its own token caching and refresh
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        const token = await this.getToken();
+        if (token) {
+          return token;
+        }
+        retries--;
+        if (retries > 0) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      } catch (error) {
+        console.error("Error getting auth token:", error);
+        retries--;
+        if (retries > 0) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  clearTokenCache() {
+    // No-op now, kept for compatibility
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const token = this.getToken ? await this.getToken() : null;
+    const token = await this.getAuthToken();
+
+    console.log(`API Request: ${endpoint}, Token available: ${!!token}`);
+
+    if (!token) {
+      console.warn(`No auth token available for request to ${endpoint}`);
+      throw new Error("Authentication required. Please sign in again.");
+    }
 
     const headers: HeadersInit = {
       "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
+      Authorization: `Bearer ${token}`,
       ...options.headers,
     };
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    const url = `${API_BASE_URL}${endpoint}`;
+    console.log(`Fetching: ${url}`);
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.error || `HTTP error ${response.status}`);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
+
+      console.log(`Response status: ${response.status} for ${endpoint}`);
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: `HTTP error ${response.status}` }));
+        throw new Error(error.error || error.message || `HTTP error ${response.status}`);
+      }
+
+      if (response.status === 204) {
+        return {} as T;
+      }
+
+      return response.json();
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error("Network request failed");
     }
-
-    if (response.status === 204) {
-      return {} as T;
-    }
-
-    return response.json();
   }
 
   async syncUser(data: {
@@ -367,7 +425,10 @@ class ApiService {
     pickup: LocationInput;
     drop: LocationInput;
     scheduledAt?: string;
+    estimatedFare?: number;
+    estimatedDistance?: number;
   }): Promise<Ride> {
+    console.log("Creating ride with data:", JSON.stringify(data, null, 2));
     return this.request<Ride>("/rides", {
       method: "POST",
       body: JSON.stringify(data),
@@ -539,6 +600,76 @@ class ApiService {
     });
   }
 
+  async setDriverCurrentLocation(locationId: string): Promise<DriverProfile> {
+    return this.request<DriverProfile>("/drivers/current-location", {
+      method: "PUT",
+      body: JSON.stringify({ locationId }),
+    });
+  }
+
+  async updateDriverFareSettings(farePerKm?: number, baseFare?: number): Promise<DriverProfile> {
+    return this.request<DriverProfile>("/drivers/fare-settings", {
+      method: "PUT",
+      body: JSON.stringify({ farePerKm, baseFare }),
+    });
+  }
+
+  async getAvailableDrivers(params?: {
+    locationId?: string;
+    city?: string;
+    state?: string;
+    district?: string;
+  }): Promise<DriverProfile[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.locationId) searchParams.append("locationId", params.locationId);
+    if (params?.city) searchParams.append("city", params.city);
+    if (params?.state) searchParams.append("state", params.state);
+    if (params?.district) searchParams.append("district", params.district);
+    const query = searchParams.toString();
+    return this.request<DriverProfile[]>(`/drivers/available${query ? `?${query}` : ""}`);
+  }
+
+  async requestRideFromDriver(data: {
+    driverId: string;
+    pickupId: string;
+    dropId: string;
+    type?: RideType;
+    scheduledAt?: string;
+    estimatedFare?: number;
+    estimatedDistance?: number;
+  }): Promise<Ride> {
+    console.log("=== API requestRideFromDriver ===");
+    console.log("Input data:", JSON.stringify(data, null, 2));
+    console.log("estimatedFare value:", data.estimatedFare, "type:", typeof data.estimatedFare);
+    console.log("estimatedDistance value:", data.estimatedDistance, "type:", typeof data.estimatedDistance);
+    console.log("================================");
+    return this.request<Ride>("/rides/request-driver", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getActiveRide(): Promise<Ride | null> {
+    return this.request<Ride | null>("/rides/active");
+  }
+
+  async getDriverRequests(): Promise<Ride[]> {
+    return this.request<Ride[]>("/drivers/requests");
+  }
+
+  async rejectJob(id: string, reason?: string): Promise<{ success: boolean }> {
+    return this.request<{ success: boolean }>(`/drivers/jobs/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  async setRideArriving(id: string): Promise<Ride> {
+    return this.request<Ride>(`/drivers/rides/${id}/arriving`, {
+      method: "PUT",
+    });
+  }
+
   async getDriverJobs(): Promise<Ride[]> {
     return this.request<Ride[]>("/drivers/jobs");
   }
@@ -562,6 +693,13 @@ class ApiService {
     return this.request<Ride>(`/drivers/rides/${id}/complete`, {
       method: "PUT",
       body: JSON.stringify(data),
+    });
+  }
+
+  // Rider endpoint to complete ride after payment is verified
+  async completeRideAfterPayment(id: string): Promise<Ride> {
+    return this.request<Ride>(`/rides/${id}/complete-after-payment`, {
+      method: "PUT",
     });
   }
 
@@ -657,6 +795,26 @@ export const api = new ApiService();
 
 export function useApi() {
   const { getToken } = useAuth();
-  api.setTokenGetter(getToken);
+  
+  // Wrap getToken to handle Clerk's async token fetching
+  // getToken() returns the session token when called without arguments
+  const tokenGetter = async () => {
+    try {
+      const token = await getToken();
+      return token;
+    } catch (error) {
+      console.error("Error in tokenGetter:", error);
+      return null;
+    }
+  };
+  
+  // Ensure token getter is always set with the latest getToken function
+  api.setTokenGetter(tokenGetter);
+  
+  return api;
+}
+
+// For use outside of React components (e.g., in utilities)
+export function getApiInstance() {
   return api;
 }
