@@ -1,4 +1,3 @@
-// app/create-profile.tsx
 import {
   View,
   Text,
@@ -7,23 +6,39 @@ import {
   StatusBar,
   Animated,
   Image,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { useUser } from "@clerk/clerk-expo";
+import { useApi } from "../services/api";
 
 export default function CreateProfile() {
   const router = useRouter();
   const { user } = useUser();
+  const api = useApi();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
 
-  const [fullName, setFullName] = useState(user?.fullName || "");
-  const [email, setEmail] = useState(user?.primaryEmailAddress?.emailAddress || "");
-  const [phone, setPhone] = useState(user?.primaryPhoneNumber?.phoneNumber || "");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [gender, setGender] = useState("Male");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setFullName(user.fullName || "");
+      setEmail(user.primaryEmailAddress?.emailAddress || "");
+      setPhone(user.primaryPhoneNumber?.phoneNumber || "");
+    }
+  }, [user]);
 
   useEffect(() => {
     Animated.parallel([
@@ -40,12 +55,44 @@ export default function CreateProfile() {
     ]).start();
   }, []);
 
+  const handleSaveProfile = async () => {
+    if (!fullName.trim()) {
+      Alert.alert("Error", "Please enter your full name");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const nameParts = fullName.trim().split(" ");
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(" ") || undefined;
+
+      await api.syncUser({
+        email: email,
+        firstName,
+        lastName,
+        phone: phone || undefined,
+        profileImage: user?.imageUrl || undefined,
+      });
+
+      router.push("/profile-success");
+    } catch (error) {
+      console.error("Error saving profile:", error);
+      Alert.alert("Error", "Failed to save profile. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <View className="flex-1 bg-white">
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      className="flex-1 bg-white"
+    >
       <StatusBar barStyle="dark-content" />
 
       {/* Curved Yellow Background */}
-      <View className="absolute top-0 left-0 right-0">
+      <View className="absolute top-0 left-0 right-0" pointerEvents="none">
         <Svg height="260" width="100%">
           <Path
             d="
@@ -60,8 +107,11 @@ export default function CreateProfile() {
         </Svg>
       </View>
 
-      {/* Content */}
-      <View className="flex-1 justify-end px-8 pb-20">
+      <ScrollView 
+        className="flex-1" 
+        contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: 32, paddingBottom: 80 }}
+        keyboardShouldPersistTaps="handled"
+      >
 
         {/* Title */}
         <Animated.View
@@ -168,18 +218,23 @@ export default function CreateProfile() {
 
           {/* Continue */}
           <TouchableOpacity
-            className="bg-yellow-500 py-4 rounded-2xl mt-8 items-center shadow-md active:scale-95"
-            onPress={() => router.push("/profile-success")}
+            className={`py-4 rounded-2xl mt-8 items-center shadow-md active:scale-95 ${loading ? "bg-yellow-400" : "bg-yellow-500"}`}
+            onPress={handleSaveProfile}
+            disabled={loading}
           >
-            <Text className="text-white text-xl font-semibold">
-              Save & Continue
-            </Text>
+            {loading ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text className="text-white text-xl font-semibold">
+                Save & Continue
+              </Text>
+            )}
           </TouchableOpacity>
 
 
 
         </Animated.View>
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
