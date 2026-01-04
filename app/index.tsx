@@ -52,7 +52,7 @@ export default function App() {
         if (isSignedIn) {
           router.replace("/home");
         } else {
-          router.replace("/(onboarding)/welcome");
+          router.replace("/(public)/welcome");
         }
       }
     }, 2000);

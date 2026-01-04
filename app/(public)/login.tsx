@@ -1,17 +1,17 @@
-// app/login.tsx
 import { View, Text, TouchableOpacity, TextInput, StatusBar, Animated } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { useSignIn, useOAuth } from "@clerk/clerk-expo";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useSignIn, useSSO } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
+import * as AuthSession from "expo-auth-session";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const router = useRouter();
   const { signIn, setActive, isLoaded } = useSignIn();
-  const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
+  const { startSSOFlow } = useSSO();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
@@ -21,9 +21,12 @@ export default function LoginScreen() {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState("");
 
-  const onGoogleSignIn = async () => {
+  const onGoogleSignIn = useCallback(async () => {
     try {
-      const { createdSessionId, setActive } = await startOAuthFlow();
+      const { createdSessionId, setActive } = await startSSOFlow({
+        strategy: "oauth_google",
+        redirectUrl: AuthSession.makeRedirectUri(),
+      });
 
       if (createdSessionId) {
         setActive!({ session: createdSessionId });
@@ -32,7 +35,7 @@ export default function LoginScreen() {
     } catch (err: any) {
       setError(err.errors?.[0]?.message || "Google sign in failed");
     }
-  };
+  }, [startSSOFlow, router]);
 
   useEffect(() => {
     Animated.parallel([
@@ -49,30 +52,38 @@ export default function LoginScreen() {
     ]).start();
   }, []);
 
+  const onEmailSignIn = async () => {
+    if (!isLoaded) return;
+
+    try {
+      const result = await signIn.create({
+        identifier: email,
+        password,
+      });
+
+      if (result.status === "complete") {
+        await setActive({ session: result.createdSessionId });
+        router.replace("/home");
+      }
+    } catch (err: any) {
+      setError(err.errors?.[0]?.message || "Login failed");
+    }
+  };
+
   return (
     <View className="flex-1 bg-white">
       <StatusBar barStyle="dark-content" />
 
-      {/* Curved Yellow Background */}
       <View className="absolute top-0 left-0 right-0">
         <Svg height="260" width="100%">
           <Path
-            d="
-              M0 0 
-              H400 
-              V180 
-              Q200 300 0 180 
-              Z
-            "
+            d="M0 0 H400 V180 Q200 300 0 180 Z"
             fill="#FACC15"
           />
         </Svg>
       </View>
 
-      {/* Content */}
       <View className="flex-1 justify-end px-8 pb-20">
-
-        {/* Title */}
         <Animated.View
           style={{
             opacity: fadeAnim,
@@ -85,7 +96,6 @@ export default function LoginScreen() {
           </Text>
         </Animated.View>
 
-        {/* Card */}
         <Animated.View
           style={{
             opacity: fadeAnim,
@@ -93,7 +103,6 @@ export default function LoginScreen() {
           }}
           className="bg-white rounded-3xl p-6 shadow-xl"
         >
-          {/* Email Input */}
           <View className="mb-5">
             <Text className="text-gray-700 font-medium mb-2">Email</Text>
             <TextInput
@@ -107,7 +116,6 @@ export default function LoginScreen() {
             />
           </View>
 
-          {/* Password Input */}
           <View className="mb-3">
             <Text className="text-gray-700 font-medium mb-2">Password</Text>
 
@@ -129,7 +137,6 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          {/* Forgot Password */}
           <TouchableOpacity
             onPress={() => router.push("/(public)/forgot-password")}
             className="self-end mt-2"
@@ -141,26 +148,9 @@ export default function LoginScreen() {
             <Text className="text-red-500 text-center mb-2">{error}</Text>
           ) : null}
 
-          {/* Login Button */}
           <TouchableOpacity
             className="bg-yellow-500 py-4 rounded-2xl mt-8 items-center shadow-md active:scale-95"
-            onPress={async () => {
-              if (!isLoaded) return;
-
-              try {
-                const result = await signIn.create({
-                  identifier: email,
-                  password,
-                });
-
-                if (result.status === "complete") {
-                  await setActive({ session: result.createdSessionId });
-                  router.replace("/home");
-                }
-              } catch (err: any) {
-                setError(err.errors?.[0]?.message || "Login failed");
-              }
-            }}
+            onPress={onEmailSignIn}
           >
             <Text className="text-white text-xl font-semibold">Login</Text>
           </TouchableOpacity>
@@ -178,7 +168,6 @@ export default function LoginScreen() {
             <Text className="text-gray-700 text-xl font-semibold">Continue with Google</Text>
           </TouchableOpacity>
 
-          {/* Sign Up Navigation */}
           <View className="mt-6 flex-row justify-center">
             <Text className="text-gray-600">Don't have an account? </Text>
             <TouchableOpacity onPress={() => router.push("/(public)/signup")}>

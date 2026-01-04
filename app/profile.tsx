@@ -91,7 +91,7 @@ export default function Profile() {
   const handleLogout = async () => {
     try {
       await signOut();
-      router.replace("/welcome");
+      router.replace("/(public)/welcome");
     } catch (error) {
       console.error("Error signing out:", error);
     }

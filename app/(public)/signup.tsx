@@ -1,4 +1,3 @@
-// app/signup.tsx
 import {
   View,
   Text,
@@ -9,16 +8,17 @@ import {
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { useSignUp, useOAuth } from "@clerk/clerk-expo";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useSignUp, useSSO } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
+import * as AuthSession from "expo-auth-session";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function SignUpScreen() {
   const router = useRouter();
   const { signUp, setActive, isLoaded } = useSignUp();
-  const { startOAuthFlow } = useOAuth({ strategy: "oauth_google" });
+  const { startSSOFlow } = useSSO();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
@@ -32,9 +32,12 @@ export default function SignUpScreen() {
   
   const [passwordVisible, setPasswordVisible] = useState(false);
 
-  const onGoogleSignUp = async () => {
+  const onGoogleSignUp = useCallback(async () => {
     try {
-      const { createdSessionId, setActive, signUp } = await startOAuthFlow();
+      const { createdSessionId, setActive, signUp } = await startSSOFlow({
+        strategy: "oauth_google",
+        redirectUrl: AuthSession.makeRedirectUri(),
+      });
 
       if (createdSessionId) {
         setActive!({ session: createdSessionId });
@@ -48,7 +51,7 @@ export default function SignUpScreen() {
     } catch (err: any) {
       setError(err.errors?.[0]?.message || "Google sign up failed");
     }
-  };
+  }, [startSSOFlow, router]);
 
   useEffect(() => {
     Animated.parallel([
@@ -108,13 +111,7 @@ export default function SignUpScreen() {
         <View className="absolute top-0 left-0 right-0">
           <Svg height="260" width="100%">
             <Path
-              d="
-                M0 0 
-                H400 
-                V180 
-                Q200 300 0 180 
-                Z
-              "
+              d="M0 0 H400 V180 Q200 300 0 180 Z"
               fill="#FACC15"
             />
           </Svg>
@@ -177,26 +174,16 @@ export default function SignUpScreen() {
     <View className="flex-1 bg-white">
       <StatusBar barStyle="dark-content" />
 
-      {/* Curved Yellow Background */}
       <View className="absolute top-0 left-0 right-0">
         <Svg height="260" width="100%">
           <Path
-            d="
-              M0 0 
-              H400 
-              V180 
-              Q200 300 0 180 
-              Z
-            "
+            d="M0 0 H400 V180 Q200 300 0 180 Z"
             fill="#FACC15"
           />
         </Svg>
       </View>
 
-      {/* Content Section */}
       <View className="flex-1 justify-end px-8 pb-20">
-
-        {/* Title */}
         <Animated.View
           style={{
             opacity: fadeAnim,
@@ -209,7 +196,6 @@ export default function SignUpScreen() {
           </Text>
         </Animated.View>
 
-        {/* Sign Up Card */}
         <Animated.View
           style={{
             opacity: fadeAnim,
@@ -217,7 +203,6 @@ export default function SignUpScreen() {
           }}
           className="bg-white rounded-3xl p-6 shadow-xl"
         >
-          {/* Full Name */}
           <View className="mb-5">
             <Text className="text-gray-700 font-medium mb-2">Full Name</Text>
             <TextInput
@@ -229,7 +214,6 @@ export default function SignUpScreen() {
             />
           </View>
 
-          {/* Email */}
           <View className="mb-5">
             <Text className="text-gray-700 font-medium mb-2">Email</Text>
             <TextInput
@@ -243,7 +227,6 @@ export default function SignUpScreen() {
             />
           </View>
 
-          {/* Password */}
           <View className="mb-5">
             <Text className="text-gray-700 font-medium mb-2">Password</Text>
 
@@ -271,7 +254,6 @@ export default function SignUpScreen() {
             <Text className="text-red-500 text-center mb-2">{error}</Text>
           ) : null}
 
-          {/* Sign Up Button */}
           <TouchableOpacity
             className="bg-yellow-500 py-4 rounded-2xl mt-8 items-center shadow-md active:scale-95"
             onPress={onSignUpPress}
@@ -294,10 +276,9 @@ export default function SignUpScreen() {
             <Text className="text-gray-700 text-xl font-semibold">Continue with Google</Text>
           </TouchableOpacity>
 
-          {/* Navigate to Login */}
           <View className="mt-6 flex-row justify-center">
             <Text className="text-gray-600">Already have an account? </Text>
-            <TouchableOpacity onPress={() => router.push("/login")}>
+            <TouchableOpacity onPress={() => router.push("/(public)/login")}>
               <Text className="text-yellow-600 font-semibold">Login</Text>
             </TouchableOpacity>
           </View>

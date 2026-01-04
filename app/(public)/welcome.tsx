@@ -116,7 +116,7 @@ export default function WelcomeScreen() {
           </Text>
 
           <TouchableOpacity
-            onPress={() => router.push("/onboarding1")}
+            onPress={() => router.push("/(public)/onboarding1")}
             className="bg-yellow-500 py-4 rounded-2xl mt-8 items-center shadow-md active:scale-95"
           >
             <Text className="text-white text-xl font-semibold">
