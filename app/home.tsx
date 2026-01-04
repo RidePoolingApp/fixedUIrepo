@@ -1,4 +1,3 @@
-// app/home.tsx
 import {
   View,
   Text,
@@ -7,19 +6,19 @@ import {
   Animated,
   TextInput,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { useState, useEffect, useRef, useContext } from "react";
+import { useState, useEffect, useRef, useContext, useCallback } from "react";
 import { Ionicons, FontAwesome5, MaterialIcons } from "@expo/vector-icons";
 import BottomNav from "../app/components/BottomNav";
 import { useRouter } from "expo-router";
 import { ThemeContext } from "../app/context/ThemeContext";
-import { LOCAL_PLACES } from "../app/data/place";
-
-
+import { useApi, Location } from "../app/services/api";
 
 export default function Home() {
   const router = useRouter();
+  const api = useApi();
   const { theme, toggleTheme } = useContext(ThemeContext);
   const isDark = theme === "dark";
 
@@ -30,19 +29,75 @@ export default function Home() {
   const card2 = useRef(new Animated.Value(1)).current;
   const card3 = useRef(new Animated.Value(1)).current;
 
-  // 🔥 Autocomplete states
   const [fromText, setFromText] = useState("");
   const [toText, setToText] = useState("");
+  const [fromLocation, setFromLocation] = useState<Location | null>(null);
+  const [toLocation, setToLocation] = useState<Location | null>(null);
 
-  const [fromSuggestions, setFromSuggestions] = useState([]);
-  const [toSuggestions, setToSuggestions] = useState([]);
+  const [fromSuggestions, setFromSuggestions] = useState<Location[]>([]);
+  const [toSuggestions, setToSuggestions] = useState<Location[]>([]);
+  const [loadingFrom, setLoadingFrom] = useState(false);
+  const [loadingTo, setLoadingTo] = useState(false);
 
-  // Filtering function
-  const filterPlaces = (text) => {
-    if (!text) return [];
-    return LOCAL_PLACES.filter((item) =>
-      item.toLowerCase().includes(text.toLowerCase())
-    );
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const searchLocations = useCallback(async (text: string, isFrom: boolean) => {
+    if (!text || text.length < 2) {
+      isFrom ? setFromSuggestions([]) : setToSuggestions([]);
+      return;
+    }
+
+    isFrom ? setLoadingFrom(true) : setLoadingTo(true);
+    try {
+      const result = await api.getLocations({ search: text, limit: 10 });
+      isFrom ? setFromSuggestions(result.locations) : setToSuggestions(result.locations);
+    } catch (error) {
+      console.error("Error searching locations:", error);
+    } finally {
+      isFrom ? setLoadingFrom(false) : setLoadingTo(false);
+    }
+  }, [api]);
+
+  const handleFromTextChange = (text: string) => {
+    setFromText(text);
+    setFromLocation(null);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => searchLocations(text, true), 300);
+  };
+
+  const handleToTextChange = (text: string) => {
+    setToText(text);
+    setToLocation(null);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => searchLocations(text, false), 300);
+  };
+
+  const selectFromLocation = (location: Location) => {
+    setFromText(`${location.locationName}, ${location.city}`);
+    setFromLocation(location);
+    setFromSuggestions([]);
+  };
+
+  const selectToLocation = (location: Location) => {
+    setToText(`${location.locationName}, ${location.city}`);
+    setToLocation(location);
+    setToSuggestions([]);
+  };
+
+  const handleSearchRides = () => {
+    if (fromLocation && toLocation) {
+      router.push({
+        pathname: "/long-trip/results",
+        params: {
+          pickupId: fromLocation.id,
+          pickupName: `${fromLocation.locationName}, ${fromLocation.city}`,
+          dropId: toLocation.id,
+          dropName: `${toLocation.locationName}, ${toLocation.city}`,
+        },
+      });
+    } else {
+      router.push("/long-trip/results");
+    }
   };
 
   const floatAnim = (ref) => {
@@ -135,27 +190,27 @@ export default function Home() {
                 <TextInput
                   placeholder="From"
                   value={fromText}
-                  onChangeText={(t) => {
-                    setFromText(t);
-                    setFromSuggestions(filterPlaces(t));
-                  }}
+                  onChangeText={handleFromTextChange}
                   placeholderTextColor={isDark ? "#bbb" : "#666"}
                   className={`flex-1 ml-3 text-lg ${isDark ? "text-white" : "text-gray-900"}`}
                 />
+                {loadingFrom && <ActivityIndicator size="small" color="#FACC15" />}
               </View>
 
               {fromSuggestions.length > 0 && (
                 <View className={`${isDark ? "bg-gray-800" : "bg-white"} p-3 rounded-xl`}>
-                  {fromSuggestions.map((place, index) => (
+                  {fromSuggestions.map((location) => (
                     <TouchableOpacity
-                      key={index}
-                      onPress={() => {
-                        setFromText(place);
-                        setFromSuggestions([]);
-                      }}
+                      key={location.id}
+                      onPress={() => selectFromLocation(location)}
                       className="py-2"
                     >
-                      <Text className={`${isDark ? "text-white" : "text-gray-800"}`}>{place}</Text>
+                      <Text className={`${isDark ? "text-white" : "text-gray-800"} font-medium`}>
+                        {location.locationName}
+                      </Text>
+                      <Text className={`${isDark ? "text-gray-400" : "text-gray-500"} text-sm`}>
+                        {location.city}, {location.district}
+                      </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -171,27 +226,27 @@ export default function Home() {
                 <TextInput
                   placeholder="To"
                   value={toText}
-                  onChangeText={(t) => {
-                    setToText(t);
-                    setToSuggestions(filterPlaces(t));
-                  }}
+                  onChangeText={handleToTextChange}
                   placeholderTextColor={isDark ? "#bbb" : "#666"}
                   className={`flex-1 ml-3 text-lg ${isDark ? "text-white" : "text-gray-900"}`}
                 />
+                {loadingTo && <ActivityIndicator size="small" color="#FACC15" />}
               </View>
 
               {toSuggestions.length > 0 && (
                 <View className={`${isDark ? "bg-gray-800" : "bg-white"} p-3 rounded-xl`}>
-                  {toSuggestions.map((place, index) => (
+                  {toSuggestions.map((location) => (
                     <TouchableOpacity
-                      key={index}
-                      onPress={() => {
-                        setToText(place);
-                        setToSuggestions([]);
-                      }}
+                      key={location.id}
+                      onPress={() => selectToLocation(location)}
                       className="py-2"
                     >
-                      <Text className={`${isDark ? "text-white" : "text-gray-800"}`}>{place}</Text>
+                      <Text className={`${isDark ? "text-white" : "text-gray-800"} font-medium`}>
+                        {location.locationName}
+                      </Text>
+                      <Text className={`${isDark ? "text-gray-400" : "text-gray-500"} text-sm`}>
+                        {location.city}, {location.district}
+                      </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -201,7 +256,7 @@ export default function Home() {
             {/* SEARCH BUTTON */}
             <View className="mt-4">
               <TouchableOpacity
-                onPress={() => router.push("/long-trip/results")}
+                onPress={handleSearchRides}
                 className={`p-4 rounded-2xl ${isDark ? "bg-yellow-500" : "bg-yellow-400"}`}
               >
                 <Text className="text-center text-white font-bold text-lg">Search Rides</Text>
