@@ -1,33 +1,63 @@
-// app/ride/payment.tsx
 import {
   View,
   TouchableOpacity,
   ScrollView,
   TextInput,
   Modal,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import Svg, { Path } from "react-native-svg";
-import { useState } from "react";
-import { useRouter } from "expo-router";
+import { useState, useEffect } from "react";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { ThemedScreen, ThemedView, ThemedText, ThemedTextSecondary } from "../components/Themed";
 import { useThemeStyles } from "../context/themeStyles";
+import { useApi, Ride, PaymentMethod } from "../services/api";
 
 export default function PaymentPage() {
   const router = useRouter();
+  const api = useApi();
+  const params = useLocalSearchParams<{ rideId?: string; fare?: string }>();
   const { isDark, colors } = useThemeStyles();
 
-  const [selected, setSelected] = useState("upi");
+  const [selected, setSelected] = useState<PaymentMethod>(PaymentMethod.UPI);
   const [addCardModal, setAddCardModal] = useState(false);
+  const [ride, setRide] = useState<Ride | null>(null);
+  const [loading, setLoading] = useState(!!params.rideId);
 
-  const fare = "₹749";
+  const fare = params.fare ? `₹${params.fare}` : (ride?.fare ? `₹${ride.fare}` : "₹0");
+
+  useEffect(() => {
+    const fetchRide = async () => {
+      if (!params.rideId) return;
+      try {
+        const rideData = await api.getRide(params.rideId);
+        setRide(rideData);
+      } catch (error) {
+        console.error("Error fetching ride:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRide();
+  }, [params.rideId, api]);
 
   const methods = [
-    { id: "upi", label: "UPI", icon: "logo-google" },
-    { id: "wallet", label: "Wallet", icon: "wallet-outline" },
-    { id: "cash", label: "Cash", icon: "cash-outline" },
-    { id: "card", label: "Credit / Debit Card", icon: "card-outline" },
+    { id: PaymentMethod.UPI, label: "UPI", icon: "logo-google" as const },
+    { id: PaymentMethod.WALLET, label: "Wallet", icon: "wallet-outline" as const },
+    { id: PaymentMethod.CASH, label: "Cash", icon: "cash-outline" as const },
+    { id: PaymentMethod.CARD, label: "Credit / Debit Card", icon: "card-outline" as const },
   ];
+
+  if (loading) {
+    return (
+      <ThemedScreen>
+        <View className="flex-1 items-center justify-center">
+          <ActivityIndicator size="large" color="#FACC15" />
+        </View>
+      </ThemedScreen>
+    );
+  }
 
   return (
     <ThemedScreen>
@@ -69,7 +99,7 @@ export default function PaymentPage() {
           <TouchableOpacity
             key={i}
             onPress={() => {
-              if (m.id === "card") {
+              if (m.id === PaymentMethod.CARD) {
                 setAddCardModal(true);
               } else {
                 setSelected(m.id);
@@ -92,7 +122,10 @@ export default function PaymentPage() {
 
         {/* PAY NOW BUTTON */}
         <TouchableOpacity
-          onPress={() => router.push("/ride/pay-now")}
+          onPress={() => router.push({
+            pathname: "/ride/pay-now",
+            params: { rideId: params.rideId, method: selected, fare: ride?.fare || params.fare },
+          })}
           className="bg-yellow-500 p-5 rounded-3xl items-center mt-6 shadow"
           style={{ elevation: 4 }}
         >
@@ -136,7 +169,7 @@ export default function PaymentPage() {
 
             <TouchableOpacity
               onPress={() => {
-                setSelected("card");
+                setSelected(PaymentMethod.CARD);
                 setAddCardModal(false);
               }}
               className="bg-yellow-500 p-4 rounded-2xl items-center mb-3"
