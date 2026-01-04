@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "fixedUI",
-    "slug": "fixedUI",
+    "name": "WayLink",
+    "slug": "waylink",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "fixedui",
+    "scheme": "waylink",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
