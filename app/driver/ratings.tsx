@@ -68,7 +68,7 @@ export default function DriverRatings() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [api]);
+  }, []);
 
   useEffect(() => {
     fetchRatings();
@@ -89,7 +89,7 @@ export default function DriverRatings() {
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchRatings();
-  }, [fetchRatings]);
+  }, []);
 
   const filtered = activeFilter === "All"
     ? reviews
