@@ -24,6 +24,29 @@ export default function BookHub() {
         contentContainerStyle={{ paddingBottom: 120 }}
       >
 
+        {/* FIND DRIVERS */}
+        <TouchableOpacity
+          onPress={() => router.push("/find-drivers")}
+          className="bg-white p-6 rounded-3xl shadow border border-yellow-400 mb-5"
+        >
+          <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center">
+              <View className="w-12 h-12 rounded-full bg-yellow-100 items-center justify-center">
+                <Ionicons name="car-sport" size={28} color="#d97706" />
+              </View>
+              <View className="ml-4">
+                <Text className="text-xl font-bold text-gray-900">Find Drivers</Text>
+                <Text className="text-gray-600 mt-1">
+                  See available drivers nearby
+                </Text>
+              </View>
+            </View>
+            <View className="bg-green-100 px-3 py-1 rounded-full">
+              <Text className="text-green-700 text-xs font-semibold">Live</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
         {/* LONG TRIP */}
         <TouchableOpacity
           onPress={() => router.push("/long-trip")}
